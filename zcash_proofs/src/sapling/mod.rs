@@ -7,7 +7,7 @@ use zcash_primitives::transaction::components::Amount;
 mod prover;
 mod verifier;
 
-pub use self::prover::SaplingProvingContext;
+pub use self::prover::{SaplingProvingContext, SaplingProvingSeed};
 pub use self::verifier::SaplingVerificationContext;
 
 // This function computes `value` in the exponent of the value commitment base

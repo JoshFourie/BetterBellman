@@ -93,7 +93,7 @@ impl SaplingOutput {
     pub fn build<P: TxProver, R: RngCore + CryptoRng>(
         self,
         prover: &P,
-        ctx: &mut P::SaplingProvingContext,
+        ctx: &mut P::Context,
         rng: &mut R,
     ) -> OutputDescription {
         let encryptor = SaplingNoteEncryption::new(
@@ -308,11 +308,10 @@ impl<R: RngCore + CryptoRng> Builder<R> {
     /// targeting. An invalid `consensus_branch_id` will *not* result in an error from
     /// this function, and instead will generate a transaction that will be rejected by
     /// the network.
-    pub fn build(
-        mut self,
-        consensus_branch_id: u32,
-        prover: impl TxProver,
-    ) -> Result<(Transaction, TransactionMetadata), Error> {
+    pub fn build<T>(mut self, consensus_branch_id: u32, prover: T) -> Result<(Transaction, TransactionMetadata), Error> 
+    where
+        T: TxProver
+    {
         let mut tx_metadata = TransactionMetadata::new();
 
         //
@@ -370,7 +369,6 @@ impl<R: RngCore + CryptoRng> Builder<R> {
         //
         // Sapling spends and outputs
         //
-
         let mut ctx = prover.new_sapling_proving_context();
         let anchor = self.anchor.expect("anchor was set if spends were added");
 
@@ -399,24 +397,25 @@ impl<R: RngCore + CryptoRng> Builder<R> {
                 &JUBJUB,
             ));
 
-            let (zkproof, cv, rk) = prover
-                .spend_proof(
-                    &mut ctx,
-                    proof_generation_key,
-                    spend.diversifier,
-                    spend.note.r,
-                    spend.alpha,
-                    spend.note.value,
-                    anchor,
-                    spend.witness.clone(),
-                )
-                .map_err(|()| Error::SpendProof)?;
+            let tx_order: _ = T::order(                    
+                proof_generation_key,
+                spend.diversifier,
+                spend.note.r,
+                spend.alpha,
+                spend.note.value,
+                anchor,
+                spend.witness.clone()
+            );
+
+            let (zkproof, cv, rk) = prover.spend_proof(&mut ctx, tx_order)
+                .ok_or(Error::SpendProof)?
+                .into();
 
             self.mtx.shielded_spends.push(SpendDescription {
                 cv,
                 anchor: anchor,
                 nullifier,
-                rk,
+                rk: rk.ok_or(Error::SpendProof)?,
                 zkproof,
                 spend_auth_sig: None,
             });
