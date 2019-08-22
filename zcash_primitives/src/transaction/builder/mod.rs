@@ -1,4 +1,4 @@
-//! Structs for building transactions.
+mod output;
 
 use crate::{
     jubjub::fs::Fs,
@@ -30,6 +30,8 @@ const DEFAULT_TX_EXPIRY_DELTA: u32 = 20;
 /// with dummy outputs if necessary. See https://github.com/zcash/zcash/issues/3615
 const MIN_SHIELDED_OUTPUTS: usize = 2;
 
+type Result<T> = std::result::Result<T, Error>;
+
 #[derive(Debug, PartialEq)]
 pub enum Error {
     AnchorMismatch,
@@ -40,132 +42,7 @@ pub enum Error {
     InvalidWitness,
     NoChangeAddress,
     SpendProof,
-}
-
-struct SpendDescriptionInfo {
-    extsk: ExtendedSpendingKey,
-    diversifier: Diversifier,
-    note: Note<Bls12>,
-    alpha: Fs,
-    witness: CommitmentTreeWitness<Node>,
-}
-
-pub struct SaplingOutput {
-    ovk: OutgoingViewingKey,
-    to: PaymentAddress<Bls12>,
-    note: Note<Bls12>,
-    memo: Memo,
-}
-
-impl SaplingOutput {
-    pub fn new<R: RngCore + CryptoRng>(
-        rng: &mut R,
-        ovk: OutgoingViewingKey,
-        to: PaymentAddress<Bls12>,
-        value: Amount,
-        memo: Option<Memo>,
-    ) -> Result<Self, Error> {
-        let g_d = match to.g_d(&JUBJUB) {
-            Some(g_d) => g_d,
-            None => return Err(Error::InvalidAddress),
-        };
-        if value.is_negative() {
-            return Err(Error::InvalidAmount);
-        }
-
-        let rcm = Fs::random(rng);
-
-        let note = Note {
-            g_d,
-            pk_d: to.pk_d.clone(),
-            value: value.into(),
-            r: rcm,
-        };
-
-        Ok(SaplingOutput {
-            ovk,
-            to,
-            note,
-            memo: memo.unwrap_or_default(),
-        })
-    }
-
-    pub fn build<P: TxProver, R: RngCore + CryptoRng>(
-        self,
-        prover: &P,
-        ctx: &mut P::Context,
-        rng: &mut R,
-    ) -> OutputDescription {
-        let encryptor = SaplingNoteEncryption::new(
-            self.ovk,
-            self.note.clone(),
-            self.to.clone(),
-            self.memo,
-            rng,
-        );
-
-        let (zkproof, cv) = prover.output_proof(
-            ctx,
-            encryptor.esk().clone(),
-            self.to,
-            self.note.r,
-            self.note.value,
-        );
-
-        let cmu = self.note.cm(&JUBJUB);
-
-        let enc_ciphertext = encryptor.encrypt_note_plaintext();
-        let out_ciphertext = encryptor.encrypt_outgoing_plaintext(&cv, &cmu);
-
-        let ephemeral_key = encryptor.epk().clone().into();
-
-        OutputDescription {
-            cv,
-            cmu,
-            ephemeral_key,
-            enc_ciphertext,
-            out_ciphertext,
-            zkproof,
-        }
-    }
-}
-
-/// Metadata about a transaction created by a [`Builder`].
-#[derive(Debug, PartialEq)]
-pub struct TransactionMetadata {
-    spend_indices: Vec<usize>,
-    output_indices: Vec<usize>,
-}
-
-impl TransactionMetadata {
-    fn new() -> Self {
-        TransactionMetadata {
-            spend_indices: vec![],
-            output_indices: vec![],
-        }
-    }
-
-    /// Returns the index within the transaction of the [`SpendDescription`] corresponding
-    /// to the `n`-th call to [`Builder::add_sapling_spend`].
-    ///
-    /// Note positions are randomized when building transactions for indistinguishability.
-    /// This means that the transaction consumer cannot assume that e.g. the first spend
-    /// they added (via the first call to [`Builder::add_sapling_spend`]) is the first
-    /// [`SpendDescription`] in the transaction.
-    pub fn spend_index(&self, n: usize) -> Option<usize> {
-        self.spend_indices.get(n).map(|i| *i)
-    }
-
-    /// Returns the index within the transaction of the [`OutputDescription`] corresponding
-    /// to the `n`-th call to [`Builder::add_sapling_output`].
-    ///
-    /// Note positions are randomized when building transactions for indistinguishability.
-    /// This means that the transaction consumer cannot assume that e.g. the first output
-    /// they added (via the first call to [`Builder::add_sapling_output`]) is the first
-    /// [`OutputDescription`] in the transaction.
-    pub fn output_index(&self, n: usize) -> Option<usize> {
-        self.output_indices.get(n).map(|i| *i)
-    }
+    OperationOnNull(&'static str)
 }
 
 /// Generates a [`Transaction`] from its inputs and outputs.
@@ -174,8 +51,8 @@ pub struct Builder<R: RngCore + CryptoRng> {
     mtx: TransactionData,
     fee: Amount,
     anchor: Option<Fr>,
-    spends: Vec<SpendDescriptionInfo>,
-    outputs: Vec<SaplingOutput>,
+    spends: Option<Vec<SpendDescriptionInfo>>,
+    outputs: Option<Vec<output::SaplingOutput>>,
     change_address: Option<(OutgoingViewingKey, PaymentAddress<Bls12>)>,
 }
 
@@ -194,7 +71,10 @@ impl Builder<OsRng> {
     }
 }
 
-impl<R: RngCore + CryptoRng> Builder<R> {
+impl<R> Builder<R> 
+where
+    R: RngCore + CryptoRng
+{
     /// Creates a new `Builder` targeted for inclusion in the block with the given height
     /// and randomness source, using default values for general transaction fields.
     ///
@@ -204,7 +84,7 @@ impl<R: RngCore + CryptoRng> Builder<R> {
     /// expiry delta (20 blocks).
     ///
     /// The fee will be set to the default fee (0.0001 ZEC).
-    pub fn new_with_rng(height: u32, rng: R) -> Builder<R> {
+    pub fn new_with_rng(height: u32, rng: R) -> Self {
         let mut mtx = TransactionData::new();
         mtx.expiry_height = height + DEFAULT_TX_EXPIRY_DELTA;
 
@@ -213,8 +93,8 @@ impl<R: RngCore + CryptoRng> Builder<R> {
             mtx,
             fee: DEFAULT_FEE,
             anchor: None,
-            spends: vec![],
-            outputs: vec![],
+            spends: Some(Vec::new()),
+            outputs: Some(Vec::new()),
             change_address: None,
         }
     }
@@ -229,7 +109,7 @@ impl<R: RngCore + CryptoRng> Builder<R> {
         diversifier: Diversifier,
         note: Note<Bls12>,
         witness: IncrementalWitness<Node>,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         // Consistency check: all anchors must equal the first one
         if let Some(anchor) = self.anchor {
             let witness_root: Fr = witness.root().into();
@@ -245,13 +125,19 @@ impl<R: RngCore + CryptoRng> Builder<R> {
 
         self.mtx.value_balance += Amount::from_u64(note.value).map_err(|_| Error::InvalidAmount)?;
 
-        self.spends.push(SpendDescriptionInfo {
-            extsk,
-            diversifier,
-            note,
-            alpha,
-            witness,
-        });
+        // F LAG
+        self.spends
+            .as_mut()
+            .map(|spends| {
+                let spend_description: _ = SpendDescriptionInfo {
+                    extsk,
+                    diversifier,
+                    note,
+                    alpha,
+                    witness,
+                };
+                spends.push(spend_description)
+            }).ok_or(Error::OperationOnNull("Expected Empty Vec to Push SpendDesriptionInfo"))?;
 
         Ok(())
     }
@@ -263,14 +149,15 @@ impl<R: RngCore + CryptoRng> Builder<R> {
         to: PaymentAddress<Bls12>,
         value: Amount,
         memo: Option<Memo>,
-    ) -> Result<(), Error> {
-        let output = SaplingOutput::new(&mut self.rng, ovk, to, value, memo)?;
+    ) -> Result<()> {
+        let output = output::SaplingOutput::new(&mut self.rng, ovk, to, value, memo)?;
 
         self.mtx.value_balance -= value;
 
-        self.outputs.push(output);
-
-        Ok(())
+        self.outputs
+            .as_mut()
+            .map(|outputs| outputs.push(output))
+            .ok_or(Error::OperationOnNull("Expected Empty Vec to Push SaplingOutput"))
     }
 
     /// Adds a transparent address to send funds to.
@@ -278,7 +165,7 @@ impl<R: RngCore + CryptoRng> Builder<R> {
         &mut self,
         to: &TransparentAddress,
         value: Amount,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         if value.is_negative() {
             return Err(Error::InvalidAmount);
         }
@@ -299,6 +186,73 @@ impl<R: RngCore + CryptoRng> Builder<R> {
         self.change_address = Some((ovk, to));
     }
 
+    
+    #[inline]
+    fn check_and_fix_consistency(&mut self) -> Result<()> {
+        let change: Amount = self.calculate_change();
+        if change.is_positive() {
+            self.send_change_to_address_or_default(change)?;
+            Ok(())
+        } else if change.is_negative() {
+            Err(Error::ChangeIsNegative(change))
+        } else { unimplemented!() }
+    }
+
+    #[inline]
+    fn calculate_change(&self) -> Amount {
+        let balance: _ = self.mtx.value_balance;
+        let fee: _ = self.fee;
+        let sigma: Amount = self.mtx
+            .vout
+            .iter()
+            .map(|output| output.value)
+            .sum();
+        balance - fee - sigma
+    }
+
+    // todo: fix naming issue with 'send_change_to'
+    #[inline]
+    fn send_change_to_address_or_default(&mut self, change: Amount) -> Result<()> {
+        let (ovk, addr): _ = self.change_address
+            .take()
+            .or_else(|| {
+                self.spends
+                    .as_ref()
+                    .and_then(|spends| {
+                        if !spends.is_empty() {
+                            let ovk: _ = spends[0].extsk.expsk.ovk;
+                            let pay_addr: _ = PaymentAddress {
+                                diversifier: spends[0].diversifier,
+                                pk_d: spends[0].note.pk_d.clone(),
+                            };
+                            Some((ovk, pay_addr))
+                        } else { None }
+                    })
+            }).ok_or(Error::NoChangeAddress)?;
+        self.add_sapling_output(ovk, addr, change, None)?;
+
+        Ok(())
+    }
+
+    fn take_description_and_map_index(&mut self) -> Result<(Vec<(usize, SpendDescriptionInfo)>, Vec<Option<(usize, output::SaplingOutput)>>)> {
+        let spends: Vec<(_, SpendDescriptionInfo)> = self.spends
+            .take()
+            .ok_or(Error::OperationOnNull("Expected Vec<SpendDescriptionInfo> to Map Index"))?
+            .into_iter()
+            .enumerate()
+            .collect();
+
+        let outputs: Vec<_> = self.outputs
+            .take()
+            .ok_or(Error::OperationOnNull("Expected Vec<SpendDescriptionInfo> to Map Optional Index"))?
+            .into_iter()
+            .enumerate()
+            .map(|(i, o)| Some((i, o)))
+            .collect();
+
+        Ok((spends, outputs))
+    } 
+
     /// Builds a transaction from the configured spends and outputs.
     ///
     /// Upon success, returns a tuple containing the final transaction, and the
@@ -308,68 +262,16 @@ impl<R: RngCore + CryptoRng> Builder<R> {
     /// targeting. An invalid `consensus_branch_id` will *not* result in an error from
     /// this function, and instead will generate a transaction that will be rejected by
     /// the network.
-    pub fn build<T>(mut self, consensus_branch_id: u32, prover: T) -> Result<(Transaction, TransactionMetadata), Error> 
+    pub fn build<T>(mut self, consensus_branch_id: u32, mut prover: T) -> Result<(Transaction, TransactionMetadata)> 
     where
         T: TxProver
     {
         let mut tx_metadata = TransactionMetadata::new();
 
-        //
-        // Consistency checks
-        //
+        self.check_and_fix_consistency()?;
 
-        // Valid change
-        let change = self.mtx.value_balance
-            - self.fee
-            - self
-                .mtx
-                .vout
-                .iter()
-                .map(|output| output.value)
-                .sum::<Amount>();
-        if change.is_negative() {
-            return Err(Error::ChangeIsNegative(change));
-        }
+        let (mut spends, mut outputs): _ = self.take_description_and_map_index()?;
 
-        //
-        // Change output
-        //
-
-        if change.is_positive() {
-            // Send change to the specified change address. If no change address
-            // was set, send change to the first Sapling address given as input.
-            let change_address = if let Some(change_address) = self.change_address.take() {
-                change_address
-            } else if !self.spends.is_empty() {
-                (
-                    self.spends[0].extsk.expsk.ovk,
-                    PaymentAddress {
-                        diversifier: self.spends[0].diversifier,
-                        pk_d: self.spends[0].note.pk_d.clone(),
-                    },
-                )
-            } else {
-                return Err(Error::NoChangeAddress);
-            };
-
-            self.add_sapling_output(change_address.0, change_address.1, change, None)?;
-        }
-
-        //
-        // Record initial positions of spends and outputs
-        //
-        let mut spends: Vec<_> = self.spends.into_iter().enumerate().collect();
-        let mut outputs: Vec<_> = self
-            .outputs
-            .into_iter()
-            .enumerate()
-            .map(|(i, o)| Some((i, o)))
-            .collect();
-
-        //
-        // Sapling spends and outputs
-        //
-        let mut ctx = prover.new_sapling_proving_context();
         let anchor = self.anchor.expect("anchor was set if spends were added");
 
         // Pad Sapling outputs
@@ -397,7 +299,7 @@ impl<R: RngCore + CryptoRng> Builder<R> {
                 &JUBJUB,
             ));
 
-            let tx_order: _ = T::order(                    
+            let tx_order: _ = (                    
                 proof_generation_key,
                 spend.diversifier,
                 spend.note.r,
@@ -407,15 +309,15 @@ impl<R: RngCore + CryptoRng> Builder<R> {
                 spend.witness.clone()
             );
 
-            let (zkproof, cv, rk) = prover.spend_proof(&mut ctx, tx_order)
+            let (zkproof, cv, rk) = prover.spend_proof(tx_order)
                 .ok_or(Error::SpendProof)?
-                .into();
+                .into_tuple();
 
             self.mtx.shielded_spends.push(SpendDescription {
                 cv,
                 anchor: anchor,
                 nullifier,
-                rk: rk.ok_or(Error::SpendProof)?,
+                rk: rk,
                 zkproof,
                 spend_auth_sig: None,
             });
@@ -430,7 +332,7 @@ impl<R: RngCore + CryptoRng> Builder<R> {
                 // Record the post-randomized output location
                 tx_metadata.output_indices[pos] = i;
 
-                output.build(&prover, &mut ctx, &mut self.rng)
+                output.build(&mut prover, &mut self.rng)
             } else {
                 // This is a dummy output
                 let (dummy_to, dummy_note) = {
@@ -471,8 +373,12 @@ impl<R: RngCore + CryptoRng> Builder<R> {
                 let esk = generate_esk(&mut self.rng);
                 let epk = dummy_note.g_d.mul(esk, &JUBJUB);
 
-                let (zkproof, cv) =
-                    prover.output_proof(&mut ctx, esk, dummy_to, dummy_note.r, dummy_note.value);
+                let (zkproof, cv) = prover.output_proof((
+                    esk, 
+                    dummy_to, 
+                    dummy_note.r, 
+                    dummy_note.value
+                )).ok_or(Error::SpendProof)?.into_tuple();
 
                 let cmu = dummy_note.cm(&JUBJUB);
 
@@ -481,17 +387,17 @@ impl<R: RngCore + CryptoRng> Builder<R> {
                 self.rng.fill_bytes(&mut enc_ciphertext[..]);
                 self.rng.fill_bytes(&mut out_ciphertext[..]);
 
-                OutputDescription {
+                Some(OutputDescription {
                     cv,
                     cmu,
                     ephemeral_key: epk.into(),
                     enc_ciphertext,
                     out_ciphertext,
                     zkproof,
-                }
+                })
             };
 
-            self.mtx.shielded_outputs.push(output_desc);
+            self.mtx.shielded_outputs.push(output_desc.ok_or(Error::SpendProof)?);
         }
 
         //
@@ -517,15 +423,59 @@ impl<R: RngCore + CryptoRng> Builder<R> {
             ));
         }
         self.mtx.binding_sig = Some(
-            prover
-                .binding_sig(&mut ctx, self.mtx.value_balance, &sighash)
-                .map_err(|()| Error::BindingSig)?,
+            prover.binding_sig(self.mtx.value_balance, &sighash).ok_or(Error::BindingSig)?
         );
 
         Ok((
             self.mtx.freeze().expect("Transaction should be complete"),
             tx_metadata,
         ))
+    }
+}
+
+struct SpendDescriptionInfo {
+    extsk: ExtendedSpendingKey,
+    diversifier: Diversifier,
+    note: Note<Bls12>,
+    alpha: Fs,
+    witness: CommitmentTreeWitness<Node>,
+}
+
+/// Metadata about a transaction created by a [`Builder`].
+#[derive(Debug, PartialEq)]
+pub struct TransactionMetadata {
+    spend_indices: Vec<usize>,
+    output_indices: Vec<usize>,
+}
+
+impl TransactionMetadata {
+    fn new() -> Self {
+        TransactionMetadata {
+            spend_indices: vec![],
+            output_indices: vec![],
+        }
+    }
+
+    /// Returns the index within the transaction of the [`SpendDescription`] corresponding
+    /// to the `n`-th call to [`Builder::add_sapling_spend`].
+    ///
+    /// Note positions are randomized when building transactions for indistinguishability.
+    /// This means that the transaction consumer cannot assume that e.g. the first spend
+    /// they added (via the first call to [`Builder::add_sapling_spend`]) is the first
+    /// [`SpendDescription`] in the transaction.
+    pub fn spend_index(&self, n: usize) -> Option<usize> {
+        self.spend_indices.get(n).map(|i| *i)
+    }
+
+    /// Returns the index within the transaction of the [`OutputDescription`] corresponding
+    /// to the `n`-th call to [`Builder::add_sapling_output`].
+    ///
+    /// Note positions are randomized when building transactions for indistinguishability.
+    /// This means that the transaction consumer cannot assume that e.g. the first output
+    /// they added (via the first call to [`Builder::add_sapling_output`]) is the first
+    /// [`OutputDescription`] in the transaction.
+    pub fn output_index(&self, n: usize) -> Option<usize> {
+        self.output_indices.get(n).map(|i| *i)
     }
 }
 
@@ -573,100 +523,116 @@ mod tests {
         );
     }
 
-    #[test]
-    fn fails_on_negative_change() {
-        let mut rng = OsRng;
-
+    #[cfg(test)]
+    fn get_rng_and_key() -> (rand::rngs::OsRng, crate::zip32::ExtendedSpendingKey) {
+        let rng = OsRng;
         // Just use the master key as the ExtendedSpendingKey for this test
-        let extsk = ExtendedSpendingKey::master(&[]);
+        let extsk = ExtendedSpendingKey::master(&[]);   
+        (rng, extsk)
+    }
 
+    #[test]
+    fn fails_with_no_input_or_output() {
         // Fails with no inputs or outputs
         // 0.0001 t-ZEC fee
-        {
-            let builder = Builder::new(0);
-            assert_eq!(
-                builder.build(1, MockTxProver),
-                Err(Error::ChangeIsNegative(Amount::from_i64(-10000).unwrap()))
-            );
-        }
+        let builder = Builder::new(0);
+        assert_eq!(
+            builder.build(1, MockTxProver),
+            Err(Error::ChangeIsNegative(Amount::from_i64(-10000).unwrap()))
+        );   
+    }
+
+    #[test]
+    fn fail_with_only_single_output() {
+        let (_, extsk): _ = get_rng_and_key();
+        let extfvk = ExtendedFullViewingKey::from(&extsk);
+        let ovk = extfvk.fvk.ovk;
+        let to = extfvk.default_address().unwrap().1;
+
+        let mut builder = Builder::new(0);
+        builder.add_sapling_output(
+                ovk.clone(),
+                to.clone(),
+                Amount::from_u64(50000).unwrap(),
+                None,
+            ).unwrap();
+
+        assert_eq!(
+            builder.build(1, MockTxProver),
+            Err(Error::ChangeIsNegative(Amount::from_i64(-60000).unwrap()))
+        );
+    }
+
+    #[test]
+    fn fail_with_only_transparent_output() {
+        let mut builder = Builder::new(0);
+        builder.add_transparent_output(
+            &TransparentAddress::PublicKey([0; 20]),
+            Amount::from_u64(50000).unwrap(),
+        ).unwrap();
+
+        assert_eq!(
+            builder.build(1, MockTxProver),
+            Err(Error::ChangeIsNegative(Amount::from_i64(-60000).unwrap()))
+        );
+    }
+
+    #[test]
+    fn fail_with_insufficient_input() {
+        let (mut rng, extsk): _ = get_rng_and_key();
 
         let extfvk = ExtendedFullViewingKey::from(&extsk);
         let ovk = extfvk.fvk.ovk;
         let to = extfvk.default_address().unwrap().1;
 
-        // Fail if there is only a Sapling output
-        // 0.0005 z-ZEC out, 0.0001 t-ZEC fee
-        {
-            let mut builder = Builder::new(0);
-            builder
-                .add_sapling_output(
-                    ovk.clone(),
-                    to.clone(),
-                    Amount::from_u64(50000).unwrap(),
-                    None,
-                )
-                .unwrap();
-            assert_eq!(
-                builder.build(1, MockTxProver),
-                Err(Error::ChangeIsNegative(Amount::from_i64(-60000).unwrap()))
-            );
-        }
+        let note1 = to.create_note(59999, Fs::random(&mut rng), &JUBJUB).unwrap();
+        let cm1 = Node::new(note1.cm(&JUBJUB).into_repr());
+        let mut tree = CommitmentTree::new();
+        tree.append(cm1).unwrap();
+        let witness1 = IncrementalWitness::from_tree(&tree);
 
-        // Fail if there is only a transparent output
-        // 0.0005 t-ZEC out, 0.0001 t-ZEC fee
-        {
-            let mut builder = Builder::new(0);
-            builder
-                .add_transparent_output(
-                    &TransparentAddress::PublicKey([0; 20]),
-                    Amount::from_u64(50000).unwrap(),
-                )
-                .unwrap();
-            assert_eq!(
-                builder.build(1, MockTxProver),
-                Err(Error::ChangeIsNegative(Amount::from_i64(-60000).unwrap()))
-            );
-        }
+        let mut builder = Builder::new(0);
+        builder.add_sapling_spend(
+            extsk.clone(),
+            to.diversifier,
+            note1.clone(),
+            witness1.clone(),
+        ).unwrap();
 
-        let note1 = to
-            .create_note(59999, Fs::random(&mut rng), &JUBJUB)
-            .unwrap();
+        builder.add_sapling_output(
+            ovk.clone(),
+            to.clone(),
+            Amount::from_u64(30000).unwrap(),
+            None,
+        ).unwrap();
+        builder.add_transparent_output(
+            &TransparentAddress::PublicKey([0; 20]),
+            Amount::from_u64(20000).unwrap(),
+        ).unwrap();
+
+        assert_eq!(
+            builder.build(1, MockTxProver),
+            Err(Error::ChangeIsNegative(Amount::from_i64(-1).unwrap()))
+        );
+    }
+
+    #[test]
+    // There was a note that the MockTxProver fails because of BindingSig,
+    // but the current failure is that the 'consistency check' didn't account
+    // for an amount that was neither positive or negative (ie zero):
+    // both returned false on a zero evaluation
+    fn succeed_with_sufficient_inputs() {
+        let (mut rng, extsk): _ = get_rng_and_key();
+
+        let extfvk = ExtendedFullViewingKey::from(&extsk);
+        let ovk = extfvk.fvk.ovk;
+        let to = extfvk.default_address().unwrap().1;
+
+        let note1 = to.create_note(59999, Fs::random(&mut rng), &JUBJUB).unwrap();
         let cm1 = Node::new(note1.cm(&JUBJUB).into_repr());
         let mut tree = CommitmentTree::new();
         tree.append(cm1).unwrap();
         let mut witness1 = IncrementalWitness::from_tree(&tree);
-
-        // Fail if there is insufficient input
-        // 0.0003 z-ZEC out, 0.0002 t-ZEC out, 0.0001 t-ZEC fee, 0.00059999 z-ZEC in
-        {
-            let mut builder = Builder::new(0);
-            builder
-                .add_sapling_spend(
-                    extsk.clone(),
-                    to.diversifier,
-                    note1.clone(),
-                    witness1.clone(),
-                )
-                .unwrap();
-            builder
-                .add_sapling_output(
-                    ovk.clone(),
-                    to.clone(),
-                    Amount::from_u64(30000).unwrap(),
-                    None,
-                )
-                .unwrap();
-            builder
-                .add_transparent_output(
-                    &TransparentAddress::PublicKey([0; 20]),
-                    Amount::from_u64(20000).unwrap(),
-                )
-                .unwrap();
-            assert_eq!(
-                builder.build(1, MockTxProver),
-                Err(Error::ChangeIsNegative(Amount::from_i64(-1).unwrap()))
-            );
-        }
 
         let note2 = to.create_note(1, Fs::random(&mut rng), &JUBJUB).unwrap();
         let cm2 = Node::new(note2.cm(&JUBJUB).into_repr());
@@ -674,29 +640,15 @@ mod tests {
         witness1.append(cm2).unwrap();
         let witness2 = IncrementalWitness::from_tree(&tree);
 
-        // Succeeds if there is sufficient input
-        // 0.0003 z-ZEC out, 0.0002 t-ZEC out, 0.0001 t-ZEC fee, 0.0006 z-ZEC in
-        //
-        // (Still fails because we are using a MockTxProver which doesn't correctly
-        // compute bindingSig.)
-        {
-            let mut builder = Builder::new(0);
-            builder
-                .add_sapling_spend(extsk.clone(), to.diversifier, note1, witness1)
-                .unwrap();
-            builder
-                .add_sapling_spend(extsk, to.diversifier, note2, witness2)
-                .unwrap();
-            builder
-                .add_sapling_output(ovk, to, Amount::from_u64(30000).unwrap(), None)
-                .unwrap();
-            builder
-                .add_transparent_output(
-                    &TransparentAddress::PublicKey([0; 20]),
-                    Amount::from_u64(20000).unwrap(),
-                )
-                .unwrap();
-            assert_eq!(builder.build(1, MockTxProver), Err(Error::BindingSig))
-        }
+        let mut builder = Builder::new(0);
+        builder.add_sapling_spend(extsk.clone(), to.diversifier, note1, witness1).unwrap();
+        builder.add_sapling_spend(extsk, to.diversifier, note2, witness2).unwrap();
+        builder.add_sapling_output(ovk, to, Amount::from_u64(30000).unwrap(), None).unwrap();
+        builder.add_transparent_output(
+            &TransparentAddress::PublicKey([0; 20]),
+            Amount::from_u64(20000).unwrap(),
+        ).unwrap();
+
+        assert_eq!(builder.build(1, MockTxProver), Err(Error::BindingSig))
     }
 }
