@@ -5,6 +5,7 @@ use crate::{
     primitives::{Diversifier, Note, PaymentAddress},
 };
 use ff::Field;
+use pairing::bls12_381;
 use pairing::bls12_381::{Bls12, Fr};
 use rand::{rngs::OsRng, seq::SliceRandom, CryptoRng, RngCore};
 use zip32::ExtendedSpendingKey;
@@ -13,7 +14,7 @@ use crate::{
     keys::OutgoingViewingKey,
     legacy::TransparentAddress,
     merkle_tree::{CommitmentTreeWitness, IncrementalWitness},
-    note_encryption::{generate_esk, Memo, SaplingNoteEncryption},
+    note_encryption::{generate_esk, Memo},
     prover::TxProver,
     redjubjub::PrivateKey,
     sapling::{spend_sig, Node},
@@ -42,8 +43,14 @@ pub enum Error {
     InvalidWitness,
     NoChangeAddress,
     SpendProof,
-    OperationOnNull(&'static str)
+    OperationOnNull
 }
+
+impl From<std::option::NoneError> for Error {
+    fn from(_null: std::option::NoneError) -> Self {
+        Error::OperationOnNull
+    }
+} 
 
 /// Generates a [`Transaction`] from its inputs and outputs.
 pub struct Builder<R: RngCore + CryptoRng> {
@@ -99,6 +106,41 @@ where
         }
     }
 
+    /// Builds a transaction from the configured spends and outputs.
+    ///
+    /// Upon success, returns a tuple containing the final transaction, and the
+    /// [`TransactionMetadata`] generated during the build process.
+    ///
+    /// `consensus_branch_id` must be valid for the block height that this transaction is
+    /// targeting. An invalid `consensus_branch_id` will *not* result in an error from
+    /// this function, and instead will generate a transaction that will be rejected by
+    /// the network.
+    pub fn build<T>(mut self, consensus_branch_id: u32, prover: T) -> Result<(Transaction, TransactionMetadata)> 
+    where
+        T: TxProver
+    {
+        self.check_and_repair_inconsistencies()?;
+
+        let anchor: _ = self.anchor.expect("anchor was set if spends were added");
+
+        let (spends, outputs): _ = self.take_and_index()?;
+        let mut ctx: _ = Context::new(spends, outputs, prover);
+
+        ctx.pad_sapling_output()?;
+        ctx.shuffle_spends_and_outputs_order(&mut self.rng)?;
+        ctx.resize_metadata_indices()?;
+
+        self.create_spend_description(anchor, &mut ctx)?;
+        self.create_output_description(&mut ctx)?;
+
+        let sighash = self.create_sighash(consensus_branch_id);
+        self.insert_sapling_spend_auths(ctx.spends?, sighash);
+        self.insert_binding_sig(sighash, &mut ctx.prover)?;
+
+        let concluded_transaction: _ = self.mtx.freeze().expect("Transaction should be complete");
+        Ok((concluded_transaction, ctx.metadata))
+    }
+
     /// Adds a Sapling note to be spent in this transaction.
     ///
     /// Returns an error if the given witness does not have the same anchor as previous
@@ -110,22 +152,12 @@ where
         note: Note<Bls12>,
         witness: IncrementalWitness<Node>,
     ) -> Result<()> {
-        // Consistency check: all anchors must equal the first one
-        if let Some(anchor) = self.anchor {
-            let witness_root: Fr = witness.root().into();
-            if witness_root != anchor {
-                return Err(Error::AnchorMismatch);
-            }
-        } else {
-            self.anchor = Some(witness.root().into())
-        }
-        let witness = witness.path().ok_or(Error::InvalidWitness)?;
+        self.check_and_repair_anchor_inequality(&witness)?;
+        self.assign_note_value(&note)?;
 
+        let witness_path = witness.path().ok_or(Error::InvalidWitness)?;
         let alpha = Fs::random(&mut self.rng);
 
-        self.mtx.value_balance += Amount::from_u64(note.value).map_err(|_| Error::InvalidAmount)?;
-
-        // F LAG
         self.spends
             .as_mut()
             .map(|spends| {
@@ -134,15 +166,14 @@ where
                     diversifier,
                     note,
                     alpha,
-                    witness,
+                    witness: witness_path,
                 };
                 spends.push(spend_description)
-            }).ok_or(Error::OperationOnNull("Expected Empty Vec to Push SpendDesriptionInfo"))?;
+            })?;
 
         Ok(())
     }
 
-    /// Adds a Sapling address to send funds to.
     pub fn add_sapling_output(
         &mut self,
         ovk: OutgoingViewingKey,
@@ -150,45 +181,34 @@ where
         value: Amount,
         memo: Option<Memo>,
     ) -> Result<()> {
-        let output = output::SaplingOutput::new(&mut self.rng, ovk, to, value, memo)?;
-
         self.mtx.value_balance -= value;
-
+        let output = output::SaplingOutput::new(&mut self.rng, ovk, to, value, memo)?;
         self.outputs
             .as_mut()
-            .map(|outputs| outputs.push(output))
-            .ok_or(Error::OperationOnNull("Expected Empty Vec to Push SaplingOutput"))
-    }
-
-    /// Adds a transparent address to send funds to.
-    pub fn add_transparent_output(
-        &mut self,
-        to: &TransparentAddress,
-        value: Amount,
-    ) -> Result<()> {
-        if value.is_negative() {
-            return Err(Error::InvalidAmount);
-        }
-
-        self.mtx.vout.push(TxOut {
-            value,
-            script_pubkey: to.script(),
-        });
-
+            .map(|outputs| outputs.push(output))?;
         Ok(())
     }
 
-    /// Sets the Sapling address to which any change will be sent.
-    ///
-    /// By default, change is sent to the Sapling address corresponding to the first note
-    /// being spent (i.e. the first call to [`Builder::add_sapling_spend`]).
+    /// Adds a transparent address to send funds to.
+    pub fn add_transparent_address(&mut self, to: &TransparentAddress, value: Amount) -> Result<()> {
+        if value.is_negative() {
+            Err(Error::InvalidAmount)
+        } else {
+            let tx_out: _ = TxOut {
+                value,
+                script_pubkey: to.script()
+            };
+            self.mtx.vout.push(tx_out);
+            Ok(())
+        }
+    }
+    
     pub fn send_change_to(&mut self, ovk: OutgoingViewingKey, to: PaymentAddress<Bls12>) {
         self.change_address = Some((ovk, to));
     }
 
-    
     #[inline]
-    fn check_and_fix_consistency(&mut self) -> Result<()> {
+    fn check_and_repair_inconsistencies(&mut self) -> Result<()> {
         let change: Amount = self.calculate_change();
         if change.is_positive() {
             self.send_change_to_address_or_default(change)?;
@@ -215,36 +235,38 @@ where
     fn send_change_to_address_or_default(&mut self, change: Amount) -> Result<()> {
         let (ovk, addr): _ = self.change_address
             .take()
-            .or_else(|| {
-                self.spends
-                    .as_ref()
-                    .and_then(|spends| {
-                        if !spends.is_empty() {
-                            let ovk: _ = spends[0].extsk.expsk.ovk;
-                            let pay_addr: _ = PaymentAddress {
-                                diversifier: spends[0].diversifier,
-                                pk_d: spends[0].note.pk_d.clone(),
-                            };
-                            Some((ovk, pay_addr))
-                        } else { None }
-                    })
-            }).ok_or(Error::NoChangeAddress)?;
+            .or(self.try_default_viewing_key_and_address())
+            .ok_or(Error::NoChangeAddress)?;
         self.add_sapling_output(ovk, addr, change, None)?;
-
         Ok(())
     }
 
-    fn take_description_and_map_index(&mut self) -> Result<(Vec<(usize, SpendDescriptionInfo)>, Vec<Option<(usize, output::SaplingOutput)>>)> {
+    #[inline]
+    fn try_default_viewing_key_and_address(&mut self) -> Option<(OutgoingViewingKey,PaymentAddress<bls12_381::Bls12>)> {
+        self.spends
+            .as_ref()
+            .and_then(|spends| {
+                if !spends.is_empty() {
+                    let ovk: _ = spends[0].extsk.expsk.ovk;
+                    let pay_addr: _ = PaymentAddress {
+                        diversifier: spends[0].diversifier,
+                        pk_d: spends[0].note.pk_d.clone(),
+                    };
+                    Some((ovk, pay_addr))
+                } else { None }
+            })
+    }
+
+    #[inline]
+    fn take_and_index(&mut self) -> Result<(Vec<(usize, SpendDescriptionInfo)>, Vec<Option<(usize, output::SaplingOutput)>>)> {
         let spends: Vec<(_, SpendDescriptionInfo)> = self.spends
-            .take()
-            .ok_or(Error::OperationOnNull("Expected Vec<SpendDescriptionInfo> to Map Index"))?
+            .take()?
             .into_iter()
             .enumerate()
             .collect();
 
         let outputs: Vec<_> = self.outputs
-            .take()
-            .ok_or(Error::OperationOnNull("Expected Vec<SpendDescriptionInfo> to Map Optional Index"))?
+            .take()?
             .into_iter()
             .enumerate()
             .map(|(i, o)| Some((i, o)))
@@ -253,183 +275,251 @@ where
         Ok((spends, outputs))
     } 
 
-    /// Builds a transaction from the configured spends and outputs.
-    ///
-    /// Upon success, returns a tuple containing the final transaction, and the
-    /// [`TransactionMetadata`] generated during the build process.
-    ///
-    /// `consensus_branch_id` must be valid for the block height that this transaction is
-    /// targeting. An invalid `consensus_branch_id` will *not* result in an error from
-    /// this function, and instead will generate a transaction that will be rejected by
-    /// the network.
-    pub fn build<T>(mut self, consensus_branch_id: u32, mut prover: T) -> Result<(Transaction, TransactionMetadata)> 
-    where
-        T: TxProver
-    {
-        let mut tx_metadata = TransactionMetadata::new();
+    #[inline]
+    fn create_spend_description(&mut self, anchor: bls12_381::Fr, ctx: &mut Context<impl TxProver>) -> Result<()> {
+        for (i, (pos, spend)) in ctx.spends
+            .as_ref()?
+            .iter()
+            .enumerate() 
+        {
+            let proof_generation_key = spend.extsk
+                .expsk
+                .proof_generation_key(&JUBJUB);
+            
+            let nullifier: [u8; 32] = {
+                let viewing_key: _ = proof_generation_key.into_viewing_key(&JUBJUB);
+                let spend_note: _ = spend.note.nf(&viewing_key, spend.witness.position, &JUBJUB);
 
-        self.check_and_fix_consistency()?;
+                let mut buf: _ = [0u8; 32];
+                buf.copy_from_slice(&spend_note);
+                buf
+            };
+            
+            let tx_order: _ = (proof_generation_key, anchor, spend);
 
-        let (mut spends, mut outputs): _ = self.take_description_and_map_index()?;
-
-        let anchor = self.anchor.expect("anchor was set if spends were added");
-
-        // Pad Sapling outputs
-        let orig_outputs_len = outputs.len();
-        if !spends.is_empty() {
-            while outputs.len() < MIN_SHIELDED_OUTPUTS {
-                outputs.push(None);
-            }
-        }
-
-        // Randomize order of inputs and outputs
-        spends.shuffle(&mut self.rng);
-        outputs.shuffle(&mut self.rng);
-        tx_metadata.spend_indices.resize(spends.len(), 0);
-        tx_metadata.output_indices.resize(orig_outputs_len, 0);
-
-        // Create Sapling SpendDescriptions
-        for (i, (pos, spend)) in spends.iter().enumerate() {
-            let proof_generation_key = spend.extsk.expsk.proof_generation_key(&JUBJUB);
-
-            let mut nullifier = [0u8; 32];
-            nullifier.copy_from_slice(&spend.note.nf(
-                &proof_generation_key.into_viewing_key(&JUBJUB),
-                spend.witness.position,
-                &JUBJUB,
-            ));
-
-            let tx_order: _ = (                    
-                proof_generation_key,
-                spend.diversifier,
-                spend.note.r,
-                spend.alpha,
-                spend.note.value,
-                anchor,
-                spend.witness.clone()
-            );
-
-            let (zkproof, cv, rk) = prover.spend_proof(tx_order)
+            let (zkproof, cv, rk) = ctx.prover
+                .spend_proof(tx_order)
                 .ok_or(Error::SpendProof)?
                 .into_tuple();
 
-            self.mtx.shielded_spends.push(SpendDescription {
+            let spend_description: _ = SpendDescription {
                 cv,
                 anchor: anchor,
                 nullifier,
                 rk: rk,
                 zkproof,
                 spend_auth_sig: None,
-            });
-
-            // Record the post-randomized spend location
-            tx_metadata.spend_indices[*pos] = i;
+            };
+            self.mtx.shielded_spends.push(spend_description);
+            ctx.metadata.spend_indices[*pos] = i;
         }
+        Ok(())
+    }
 
-        // Create Sapling OutputDescriptions
-        for (i, output) in outputs.into_iter().enumerate() {
-            let output_desc = if let Some((pos, output)) = output {
-                // Record the post-randomized output location
-                tx_metadata.output_indices[pos] = i;
-
-                output.build(&mut prover, &mut self.rng)
-            } else {
-                // This is a dummy output
-                let (dummy_to, dummy_note) = {
-                    let (diversifier, g_d) = {
-                        let mut diversifier;
-                        let g_d;
-                        loop {
-                            let mut d = [0; 11];
-                            self.rng.fill_bytes(&mut d);
-                            diversifier = Diversifier(d);
-                            if let Some(val) = diversifier.g_d::<Bls12>(&JUBJUB) {
-                                g_d = val;
-                                break;
-                            }
-                        }
-                        (diversifier, g_d)
-                    };
-
-                    let pk_d = {
-                        let dummy_ivk = Fs::random(&mut self.rng);
-                        g_d.mul(dummy_ivk, &JUBJUB)
-                    };
-
-                    (
-                        PaymentAddress {
-                            diversifier,
-                            pk_d: pk_d.clone(),
-                        },
-                        Note {
-                            g_d,
-                            pk_d,
-                            r: Fs::random(&mut self.rng),
-                            value: 0,
-                        },
-                    )
-                };
-
-                let esk = generate_esk(&mut self.rng);
-                let epk = dummy_note.g_d.mul(esk, &JUBJUB);
-
-                let (zkproof, cv) = prover.output_proof((
-                    esk, 
-                    dummy_to, 
-                    dummy_note.r, 
-                    dummy_note.value
-                )).ok_or(Error::SpendProof)?.into_tuple();
-
-                let cmu = dummy_note.cm(&JUBJUB);
-
-                let mut enc_ciphertext = [0u8; 580];
-                let mut out_ciphertext = [0u8; 80];
-                self.rng.fill_bytes(&mut enc_ciphertext[..]);
-                self.rng.fill_bytes(&mut out_ciphertext[..]);
-
-                Some(OutputDescription {
-                    cv,
-                    cmu,
-                    ephemeral_key: epk.into(),
-                    enc_ciphertext,
-                    out_ciphertext,
-                    zkproof,
-                })
+    #[inline]
+    fn build_default_description(&mut self, prover: &mut impl TxProver) -> Option<OutputDescription> {
+        let (dummy_to, dummy_note) = {
+            let (diversifier, g_d) = {
+                let mut diversifier;
+                let g_d;
+                loop {
+                    let mut d = [0; 11];
+                    self.rng.fill_bytes(&mut d);
+                    diversifier = Diversifier(d);
+                    if let Some(val) = diversifier.g_d::<Bls12>(&JUBJUB) {
+                        g_d = val;
+                        break;
+                    }
+                }
+                (diversifier, g_d)
             };
 
-            self.mtx.shielded_outputs.push(output_desc.ok_or(Error::SpendProof)?);
+            let pk_d = {
+                let dummy_ivk = Fs::random(&mut self.rng);
+                g_d.mul(dummy_ivk, &JUBJUB)
+            };
+
+            (
+                PaymentAddress {
+                    diversifier,
+                    pk_d: pk_d.clone(),
+                },
+                Note {
+                    g_d,
+                    pk_d,
+                    r: Fs::random(&mut self.rng),
+                    value: 0,
+                },
+            )
+        };
+
+        let esk = generate_esk(&mut self.rng);
+        let epk = dummy_note.g_d.mul(esk, &JUBJUB);
+
+        let (zkproof, cv) = prover.output_proof((
+            esk, 
+            dummy_to, 
+            dummy_note.r, 
+            dummy_note.value
+        ))?.into_tuple();
+
+        let cmu = dummy_note.cm(&JUBJUB);
+
+        let mut enc_ciphertext = [0u8; 580];
+        let mut out_ciphertext = [0u8; 80];
+        self.rng.fill_bytes(&mut enc_ciphertext[..]);
+        self.rng.fill_bytes(&mut out_ciphertext[..]);
+
+        Some(OutputDescription {
+            cv,
+            cmu,
+            ephemeral_key: epk.into(),
+            enc_ciphertext,
+            out_ciphertext,
+            zkproof,
+        })
+    }
+
+    #[inline]
+    fn create_build_description(&mut self, i: usize, pos: usize, output: output::SaplingOutput, ctx: &mut Context<impl TxProver>) -> Option<OutputDescription> {
+        ctx.metadata.output_indices[pos] = i;
+        output.build(&mut ctx.prover, &mut self.rng)
+    }
+
+    #[inline]
+    fn create_output_description(&mut self, ctx: &mut Context<impl TxProver> ) -> Result<()> {
+        for (i, output) in ctx.outputs
+            .take()?
+            .into_iter()
+            .enumerate()
+        {
+            let description: _ = output.map(|(pos, out)| self.create_build_description(i, pos, out, ctx))
+                .or(Some(self.build_default_description(&mut ctx.prover)))?
+                .ok_or(Error::SpendProof)?;
+            self.mtx.shielded_outputs.push(description);
         }
 
-        //
-        // Signatures
-        //
+        Ok(())
+    }
 
-        let mut sighash = [0u8; 32];
-        sighash.copy_from_slice(&signature_hash_data(
-            &self.mtx,
-            consensus_branch_id,
-            SIGHASH_ALL,
-            None,
-        ));
-
-        // Create Sapling spendAuth and binding signatures
+    #[inline]
+    fn insert_sapling_spend_auths(
+        &mut self, 
+        spends: Vec<(usize, SpendDescriptionInfo)>, 
+        sighash: [u8;32],
+    ) {
+        // not sure whether the .enumerate() is necessary.
         for (i, (_, spend)) in spends.into_iter().enumerate() {
-            self.mtx.shielded_spends[i].spend_auth_sig = Some(spend_sig(
+            let spend_sig: _ = spend_sig(
                 PrivateKey(spend.extsk.expsk.ask),
                 spend.alpha,
                 &sighash,
                 &mut self.rng,
                 &JUBJUB,
-            ));
-        }
-        self.mtx.binding_sig = Some(
-            prover.binding_sig(self.mtx.value_balance, &sighash).ok_or(Error::BindingSig)?
-        );
+            );
 
-        Ok((
-            self.mtx.freeze().expect("Transaction should be complete"),
-            tx_metadata,
-        ))
+            self.mtx.shielded_spends[i].spend_auth_sig = Some(spend_sig);
+        }
+    }
+
+    #[inline]
+    fn insert_binding_sig(&mut self, sighash: [u8;32], prover: &mut impl TxProver) -> Result<()> {
+        let binding_sig: _ = prover.binding_sig(
+            self.mtx.value_balance, 
+            &sighash
+        ).ok_or(Error::BindingSig)?;
+        self.mtx.binding_sig = Some(binding_sig);
+        Ok(())
+    }
+
+    #[inline]
+    fn create_sighash(&self, consensus_branch_id: u32) -> [u8; 32] {
+        let mut sighash = [0u8; 32];
+        let data: _ = &signature_hash_data(
+            &self.mtx,
+            consensus_branch_id,
+            SIGHASH_ALL,
+            None,
+        );
+        sighash.copy_from_slice(data);
+        sighash
+    }
+
+    #[inline]
+    fn check_and_repair_anchor_inequality(&mut self, witness: &IncrementalWitness<Node>) -> Result<()> {
+        let witness_root: bls12_381::Fr = witness.root().into();
+        if let Some(anchor) = self.anchor {
+            if anchor != witness_root {
+                Err(Error::AnchorMismatch)
+            } else { Ok(()) }
+        } else { 
+            self.anchor = Some(witness_root);
+            Ok(())
+        }
+    }
+
+    #[inline]
+    fn assign_note_value(&mut self, note: &Note<bls12_381::Bls12>) -> Result<()> {
+        let note_value: _ = Amount::from_u64(note.value).map_err(|_| Error::InvalidAmount)?;
+        self.mtx.value_balance += note_value;
+        Ok(())
+    }
+}
+
+// Stores additional information common builder functions.
+struct Context<T> {
+    spends: Option<Vec<(usize, SpendDescriptionInfo)>>,
+    outputs: Option<Vec<Option<(usize, output::SaplingOutput)>>>,
+    metadata: TransactionMetadata,
+    prover: T,
+}
+
+impl<T> Context<T> {
+    fn new(
+        spends: Vec<(usize,SpendDescriptionInfo)>,
+        outputs: Vec<Option<(usize, output::SaplingOutput)>>, 
+        prover: T
+    ) -> Self {
+        Context { 
+            spends: Some(spends), 
+            outputs: Some(outputs), 
+            metadata: TransactionMetadata::new(),
+            prover 
+        }
+    }
+
+    #[inline]
+    fn shuffle_spends_and_outputs_order<R>(&mut self, rng: &mut R) -> Result<()> 
+    where
+        R: rand::RngCore
+    {
+        self.spends
+            .as_mut()?
+            .shuffle(rng);
+        self.outputs
+            .as_mut()?
+            .shuffle(rng);
+        Ok(())
+    }
+
+    #[inline]
+    fn pad_sapling_output(&mut self) -> Result<()> {
+        if !self.spends
+            .as_ref()?
+            .is_empty()
+        { 
+            while self.outputs.as_ref()?.len() < MIN_SHIELDED_OUTPUTS {
+                self.outputs.as_mut()?.push(None);
+            }    
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn resize_metadata_indices(&mut self) -> Result<()> {
+        self.metadata.spend_indices.resize(self.spends.as_ref()?.len(), 0);
+        self.metadata.output_indices.resize(self.outputs.as_ref()?.len(), 0);
+        Ok(())
     }
 }
 
@@ -515,7 +605,7 @@ mod tests {
     fn fails_on_negative_transparent_output() {
         let mut builder = Builder::new(0);
         assert_eq!(
-            builder.add_transparent_output(
+            builder.add_transparent_address(
                 &TransparentAddress::PublicKey([0; 20]),
                 Amount::from_i64(-1).unwrap(),
             ),
@@ -566,7 +656,7 @@ mod tests {
     #[test]
     fn fail_with_only_transparent_output() {
         let mut builder = Builder::new(0);
-        builder.add_transparent_output(
+        builder.add_transparent_address(
             &TransparentAddress::PublicKey([0; 20]),
             Amount::from_u64(50000).unwrap(),
         ).unwrap();
@@ -605,7 +695,7 @@ mod tests {
             Amount::from_u64(30000).unwrap(),
             None,
         ).unwrap();
-        builder.add_transparent_output(
+        builder.add_transparent_address(
             &TransparentAddress::PublicKey([0; 20]),
             Amount::from_u64(20000).unwrap(),
         ).unwrap();
@@ -644,7 +734,7 @@ mod tests {
         builder.add_sapling_spend(extsk.clone(), to.diversifier, note1, witness1).unwrap();
         builder.add_sapling_spend(extsk, to.diversifier, note2, witness2).unwrap();
         builder.add_sapling_output(ovk, to, Amount::from_u64(30000).unwrap(), None).unwrap();
-        builder.add_transparent_output(
+        builder.add_transparent_address(
             &TransparentAddress::PublicKey([0; 20]),
             Amount::from_u64(20000).unwrap(),
         ).unwrap();
