@@ -1,5 +1,3 @@
-mod output;
-
 use crate::{
     jubjub::fs::Fs,
     primitives::{Diversifier, Note, PaymentAddress},
@@ -25,6 +23,11 @@ use crate::{
     },
     JUBJUB,
 };
+
+use crate::{keys, primitives, transaction, jubjub, note_encryption, prover};
+use transaction::{components, builder};
+use rand;
+use jubjub::fs;
 
 const DEFAULT_TX_EXPIRY_DELTA: u32 = 20;
 
@@ -60,7 +63,7 @@ pub struct Builder<R: RngCore + CryptoRng> {
     fee: Amount,
     anchor: Option<Fr>,
     spends: Option<Vec<SpendDescriptionInfo>>,
-    outputs: Option<Vec<output::SaplingOutput>>,
+    outputs: Option<Vec<SaplingOutput>>,
     change_address: Option<(OutgoingViewingKey, PaymentAddress<Bls12>)>,
 }
 
@@ -183,7 +186,7 @@ where
         memo: Option<Memo>,
     ) -> Result<()> {
         self.mtx.value_balance -= value;
-        let output = output::SaplingOutput::new(&mut self.rng, ovk, to, value, memo)?;
+        let output = SaplingOutput::new(&mut self.rng, ovk, to, value, memo)?;
         self.outputs
             .as_mut()
             .map(|outputs| outputs.push(output))?;
@@ -259,7 +262,7 @@ where
     }
 
     #[inline]
-    fn take_and_index(&mut self) -> Result<(Vec<(usize, SpendDescriptionInfo)>, Vec<Option<(usize, output::SaplingOutput)>>)> {
+    fn take_and_index(&mut self) -> Result<(Vec<(usize, SpendDescriptionInfo)>, Vec<Option<(usize, SaplingOutput)>>)> {
         let spends: Vec<(_, SpendDescriptionInfo)> = self.spends
             .take()?
             .into_iter()
@@ -382,7 +385,7 @@ where
     }
 
     #[inline]
-    fn create_build_description(&mut self, i: usize, pos: usize, output: output::SaplingOutput, ctx: &mut Context<impl TxProver>) -> Option<OutputDescription> {
+    fn create_build_description(&mut self, i: usize, pos: usize, output: SaplingOutput, ctx: &mut Context<impl TxProver>) -> Option<OutputDescription> {
         ctx.metadata.output_indices[pos] = i;
         output.build(&mut ctx.prover, &mut self.rng)
     }
@@ -470,7 +473,7 @@ where
 // Stores additional information common builder functions.
 struct Context<T> {
     spends: Option<Vec<(usize, SpendDescriptionInfo)>>,
-    outputs: Option<Vec<Option<(usize, output::SaplingOutput)>>>,
+    outputs: Option<Vec<Option<(usize, SaplingOutput)>>>,
     metadata: TransactionMetadata,
     prover: T,
 }
@@ -478,7 +481,7 @@ struct Context<T> {
 impl<T> Context<T> {
     fn new(
         spends: Vec<(usize,SpendDescriptionInfo)>,
-        outputs: Vec<Option<(usize, output::SaplingOutput)>>, 
+        outputs: Vec<Option<(usize, SaplingOutput)>>, 
         prover: T
     ) -> Self {
         Context { 
@@ -567,6 +570,81 @@ impl TransactionMetadata {
     /// [`OutputDescription`] in the transaction.
     pub fn output_index(&self, n: usize) -> Option<usize> {
         self.output_indices.get(n).map(|i| *i)
+    }
+}
+
+pub struct SaplingOutput {
+    ovk: keys::OutgoingViewingKey,
+    to: primitives::PaymentAddress<bls12_381::Bls12>,
+    note: primitives::Note<bls12_381::Bls12>,
+    memo: note_encryption::Memo,
+}
+
+impl SaplingOutput {
+    pub fn new<R: rand::RngCore + rand::CryptoRng>(
+        rng: &mut R,
+        ovk: keys::OutgoingViewingKey,
+        to: primitives::PaymentAddress<bls12_381::Bls12>,
+        value: components::Amount,
+        memo: Option<note_encryption::Memo>,
+    ) -> builder::Result<Self> {
+
+        let g_d = to.g_d(&JUBJUB).ok_or(builder::Error::InvalidAddress)?;
+
+        if value.is_negative() { return Err(builder::Error::InvalidAmount) }
+
+        let rcm = fs::Fs::random(rng);
+
+        let note = primitives::Note {
+            g_d,
+            pk_d: to.pk_d.clone(),
+            value: value.into(),
+            r: rcm,
+        };
+
+        Ok(SaplingOutput {
+            ovk,
+            to,
+            note,
+            memo: memo.unwrap_or_default(),
+        })
+    }
+
+    pub fn build<P, R>(self, prover: &mut P, rng: &mut R) -> Option<builder::OutputDescription> 
+    where
+        P: prover::TxProver, 
+        R: rand::RngCore + rand::CryptoRng
+    {
+        let encryptor = note_encryption::SaplingNoteEncryption::new(
+            self.ovk,
+            self.note.clone(),
+            self.to.clone(),
+            self.memo,
+            rng,
+        );
+
+        let (zkproof, cv) = prover.output_proof((
+            encryptor.esk().clone(),
+            self.to,
+            self.note.r,
+            self.note.value,
+        ))?.into_tuple();
+
+        let cmu = self.note.cm(&jubjub::JubjubBls12::new());
+
+        let enc_ciphertext = encryptor.encrypt_note_plaintext();
+        let out_ciphertext = encryptor.encrypt_outgoing_plaintext(&cv, &cmu);
+
+        let ephemeral_key = encryptor.epk().clone().into();
+
+        Some(builder::OutputDescription {
+            cv,
+            cmu,
+            ephemeral_key,
+            enc_ciphertext,
+            out_ciphertext,
+            zkproof,
+        })
     }
 }
 
