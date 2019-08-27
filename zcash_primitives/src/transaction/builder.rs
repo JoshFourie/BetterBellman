@@ -756,7 +756,7 @@ mod tests {
 
         let note1 = to.create_note(59999, Fs::random(&mut rng), &JUBJUB).unwrap();
         let cm1 = Node::new(note1.cm(&JUBJUB).into_repr());
-        let mut tree = CommitmentTree::new();
+        let mut tree = CommitmentTree::default();
         tree.append(cm1).unwrap();
         let witness1 = IncrementalWitness::from_tree(&tree);
 
@@ -799,7 +799,7 @@ mod tests {
 
         let note1 = to.create_note(59999, Fs::random(&mut rng), &JUBJUB).unwrap();
         let cm1 = Node::new(note1.cm(&JUBJUB).into_repr());
-        let mut tree = CommitmentTree::new();
+        let mut tree = CommitmentTree::default();
         tree.append(cm1).unwrap();
         let mut witness1 = IncrementalWitness::from_tree(&tree);
 
