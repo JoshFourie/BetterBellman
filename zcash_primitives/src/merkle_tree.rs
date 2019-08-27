@@ -665,10 +665,116 @@ mod tests {
         }
     }
 
+    fn assert_root_eq(root: Node, expected: &str) {
+        let mut tmp = [0u8; 32];
+        root.write(&mut tmp[..]).expect("length is 32 bytes");
+        assert_eq!(hex::encode(tmp), expected);
+    }
+
+    fn assert_tree_ser_eq(tree: &TestCommitmentTree, expected: &str) {
+        // Check that the tree matches its encoding
+        let mut tmp = Vec::new();
+        tree.write(&mut tmp).unwrap();
+        assert_eq!(hex::encode(&tmp[..]), expected);
+
+        // Check round-trip encoding
+        let decoded = TestCommitmentTree::read(&hex::decode(expected).unwrap()[..]).unwrap();
+        tmp.clear();
+        decoded.write(&mut tmp).unwrap();
+        assert_eq!(hex::encode(tmp), expected);
+    }
+
+    fn assert_witness_ser_eq(witness: &TestIncrementalWitness, expected: &str) {
+        // Check that the witness matches its encoding
+        let mut tmp = Vec::new();
+        witness.write(&mut tmp).unwrap();
+        assert_eq!(hex::encode(&tmp[..]), expected);
+
+        // Check round-trip encoding
+        let decoded =
+            TestIncrementalWitness::read(&hex::decode(expected).unwrap()[..]).unwrap();
+        tmp.clear();
+        decoded.write(&mut tmp).unwrap();
+        assert_eq!(hex::encode(tmp), expected);
+    }
+
+
     #[test]
     fn test_sapling_tree() {
         // From https://github.com/zcash/zcash/blob/master/src/test/data/merkle_commitments_sapling.json
         // Byte-reversed because the original test vectors are loaded using uint256S()
+
+        let mut tree = TestCommitmentTree::new();
+        assert_eq!(tree.size(), 0);
+
+        let commitments: _ = get_test_commitments();
+        let roots: _ = get_test_roots();
+        let tree_ser: _ = get_test_tree_ser();
+        let paths: _ = get_test_paths();
+        let witness_ser: _ = get_test_witness_ser();
+
+        let mut witnesses = vec![];
+        let mut paths_i = 0;
+        let mut witness_ser_i = 0;
+        for i in 0..16 {
+            let mut cm = FrRepr::default();
+            cm.read_le(&hex::decode(commitments[i]).unwrap()[..])
+                .expect("length is 32 bytes");
+
+            let cm = Node::new(cm);
+
+            // Witness here
+            witnesses.push(TestIncrementalWitness::from_tree(&tree));
+
+            // Now append a commitment to the tree
+            assert!(tree.append(cm).is_ok());
+
+            // Size incremented by one.
+            assert_eq!(tree.size(), i + 1);
+
+            // Check tree root consistency
+            assert_root_eq(tree.root(), roots[i]);
+
+            // Check serialization of tree
+            assert_tree_ser_eq(&tree, tree_ser[i]);
+
+            let mut first = true; // The first witness can never form a path
+            for witness in witnesses.as_mut_slice() {
+                // Append the same commitment to all the witnesses
+                assert!(witness.append(cm).is_ok());
+
+                if first {
+                    assert!(witness.path().is_none());
+                } else {
+                    let path = witness.path().expect("should be able to create a path");
+                    let expected = CommitmentTreeWitness::from_slice_with_depth(
+                        &mut hex::decode(paths[paths_i]).unwrap(),
+                        TESTING_DEPTH,
+                    )
+                    .unwrap();
+                    assert_eq!(path, expected);
+                    paths_i += 1;
+                }
+
+                // Check witness serialization
+                assert_witness_ser_eq(witness, witness_ser[witness_ser_i]);
+                witness_ser_i += 1;
+
+                assert_eq!(witness.root(), tree.root());
+
+                first = false;
+            }
+        }
+        
+        // Tree should be full now
+        let node = Node::default();
+        assert!(tree.append(node).is_err());
+        for witness in witnesses.as_mut_slice() {
+            assert!(witness.append(node).is_err());
+        }
+    }
+
+    fn get_test_commitments() -> [&'static str; 16] {
         let commitments = [
             "b02310f2e087e55bfd07ef5e242e3b87ee5d00c9ab52f61e6bd42542f93a6f55",
             "225747f3b5d5dab4e5a424f81f85c904ff43286e0f3fd07ef0b8c6a627b11458",
@@ -687,7 +793,10 @@ mod tests {
             "f43e3aac61e5a753062d4d0508c26ceaf5e4c0c58ba3c956e104b5d2cf67c41c",
             "3a3661bc12b72646c94bc6c92796e81953985ee62d80a9ec3645a9a95740ac15",
         ];
+        commitments
+    }
 
+    fn get_test_roots() -> [&'static str; 16] {
         // From https://github.com/zcash/zcash/blob/master/src/test/data/merkle_roots_sapling.json
         let roots = [
             "8c3daa300c9710bf24d2595536e7c80ff8d147faca726636d28e8683a0c27703",
@@ -707,7 +816,10 @@ mod tests {
             "7b6523b2d9b23f72fec6234aa6a1f8fae3dba1c6a266023ea8b1826feba7a25c",
             "5c0bea7e17bde5bee4eb795c2eec3d389a68da587b36dd687b134826ecc09308",
         ];
+        roots
+    }
 
+    fn get_test_tree_ser() -> [&'static str; 16] {
         // From https://github.com/zcash/zcash/blob/master/src/test/data/merkle_serialization_sapling.json
         let tree_ser = [
             "01b02310f2e087e55bfd07ef5e242e3b87ee5d00c9ab52f61e6bd42542f93a6f550000",
@@ -727,7 +839,10 @@ mod tests {
             "01f43e3aac61e5a753062d4d0508c26ceaf5e4c0c58ba3c956e104b5d2cf67c41c0003015991131c5c25911b35fcea2a8343e2dfd7a4d5b45493390e0cb184394d91c34901002df68503da9247dfde6585cb8c9fa94897cf21735f8fc1b32116ef474de05c010d6b42350c11df4fcc17987c13d8492ba4e8b3f31eb9baff9be5d8890cfa512d",
             "01f43e3aac61e5a753062d4d0508c26ceaf5e4c0c58ba3c956e104b5d2cf67c41c013a3661bc12b72646c94bc6c92796e81953985ee62d80a9ec3645a9a95740ac1503015991131c5c25911b35fcea2a8343e2dfd7a4d5b45493390e0cb184394d91c34901002df68503da9247dfde6585cb8c9fa94897cf21735f8fc1b32116ef474de05c010d6b42350c11df4fcc17987c13d8492ba4e8b3f31eb9baff9be5d8890cfa512d",
         ];
+        tree_ser
+    }
 
+    fn get_test_paths() -> [&'static str; 120] {
         // From https://github.com/zcash/zcash/blob/master/src/test/data/merkle_path_sapling.json
         let paths = [
             "0420d8283386ef2ef07ebdbb4383c12a739a953a4d6e0d6fb1139a4036d693bfbb6c20ffe9fc03f18b176c998806439ff0bb8ad193afdb27b2ccbc88856916dd804e3420817de36ab2d57feb077634bca77819c8e0bd298c04f6fed0e6a83cc1356ca15520225747f3b5d5dab4e5a424f81f85c904ff43286e0f3fd07ef0b8c6a627b114580000000000000000",
@@ -851,7 +966,10 @@ mod tests {
             "04200d6b42350c11df4fcc17987c13d8492ba4e8b3f31eb9baff9be5d8890cfa512d20002df68503da9247dfde6585cb8c9fa94897cf21735f8fc1b32116ef474de05c20afa80a9a1bb8b6aad144cfb53e0bab004dd541c8b72025ae694bb60d6050a532208cebb73be883466d18d3b0c06990520e80b936440a2c9fd184d92a1f06c4e8260d00000000000000",
             "04200d6b42350c11df4fcc17987c13d8492ba4e8b3f31eb9baff9be5d8890cfa512d20002df68503da9247dfde6585cb8c9fa94897cf21735f8fc1b32116ef474de05c205991131c5c25911b35fcea2a8343e2dfd7a4d5b45493390e0cb184394d91c349203a3661bc12b72646c94bc6c92796e81953985ee62d80a9ec3645a9a95740ac150e00000000000000",
         ];
+        paths
+    }
 
+    fn get_test_witness_ser() -> [&'static str; 136] {
         // From https://github.com/zcash/zcash/blob/master/src/test/data/merkle_witness_serialization_sapling.json
         let witness_ser = [
             "00000001b02310f2e087e55bfd07ef5e242e3b87ee5d00c9ab52f61e6bd42542f93a6f5500",
@@ -991,101 +1109,6 @@ mod tests {
             "018cebb73be883466d18d3b0c06990520e80b936440a2c9fd184d92a1f06c4e8260122fab8bcdb88154dbf5877ad1e2d7f1b541bc8a5ec1b52266095381339c27c03030001002df68503da9247dfde6585cb8c9fa94897cf21735f8fc1b32116ef474de05c010d6b42350c11df4fcc17987c13d8492ba4e8b3f31eb9baff9be5d8890cfa512d01afa80a9a1bb8b6aad144cfb53e0bab004dd541c8b72025ae694bb60d6050a53200",
             "01f43e3aac61e5a753062d4d0508c26ceaf5e4c0c58ba3c956e104b5d2cf67c41c0003015991131c5c25911b35fcea2a8343e2dfd7a4d5b45493390e0cb184394d91c34901002df68503da9247dfde6585cb8c9fa94897cf21735f8fc1b32116ef474de05c010d6b42350c11df4fcc17987c13d8492ba4e8b3f31eb9baff9be5d8890cfa512d013a3661bc12b72646c94bc6c92796e81953985ee62d80a9ec3645a9a95740ac1500",
         ];
-
-        fn assert_root_eq(root: Node, expected: &str) {
-            let mut tmp = [0u8; 32];
-            root.write(&mut tmp[..]).expect("length is 32 bytes");
-            assert_eq!(hex::encode(tmp), expected);
-        }
-
-        fn assert_tree_ser_eq(tree: &TestCommitmentTree, expected: &str) {
-            // Check that the tree matches its encoding
-            let mut tmp = Vec::new();
-            tree.write(&mut tmp).unwrap();
-            assert_eq!(hex::encode(&tmp[..]), expected);
-
-            // Check round-trip encoding
-            let decoded = TestCommitmentTree::read(&hex::decode(expected).unwrap()[..]).unwrap();
-            tmp.clear();
-            decoded.write(&mut tmp).unwrap();
-            assert_eq!(hex::encode(tmp), expected);
-        }
-
-        fn assert_witness_ser_eq(witness: &TestIncrementalWitness, expected: &str) {
-            // Check that the witness matches its encoding
-            let mut tmp = Vec::new();
-            witness.write(&mut tmp).unwrap();
-            assert_eq!(hex::encode(&tmp[..]), expected);
-
-            // Check round-trip encoding
-            let decoded =
-                TestIncrementalWitness::read(&hex::decode(expected).unwrap()[..]).unwrap();
-            tmp.clear();
-            decoded.write(&mut tmp).unwrap();
-            assert_eq!(hex::encode(tmp), expected);
-        }
-
-        let mut tree = TestCommitmentTree::new();
-        assert_eq!(tree.size(), 0);
-
-        let mut witnesses = vec![];
-        let mut paths_i = 0;
-        let mut witness_ser_i = 0;
-        for i in 0..16 {
-            let mut cm = FrRepr::default();
-            cm.read_le(&hex::decode(commitments[i]).unwrap()[..])
-                .expect("length is 32 bytes");
-
-            let cm = Node::new(cm);
-
-            // Witness here
-            witnesses.push(TestIncrementalWitness::from_tree(&tree));
-
-            // Now append a commitment to the tree
-            assert!(tree.append(cm).is_ok());
-
-            // Size incremented by one.
-            assert_eq!(tree.size(), i + 1);
-
-            // Check tree root consistency
-            assert_root_eq(tree.root(), roots[i]);
-
-            // Check serialization of tree
-            assert_tree_ser_eq(&tree, tree_ser[i]);
-
-            let mut first = true; // The first witness can never form a path
-            for witness in witnesses.as_mut_slice() {
-                // Append the same commitment to all the witnesses
-                assert!(witness.append(cm).is_ok());
-
-                if first {
-                    assert!(witness.path().is_none());
-                } else {
-                    let path = witness.path().expect("should be able to create a path");
-                    let expected = CommitmentTreeWitness::from_slice_with_depth(
-                        &mut hex::decode(paths[paths_i]).unwrap(),
-                        TESTING_DEPTH,
-                    )
-                    .unwrap();
-                    assert_eq!(path, expected);
-                    paths_i += 1;
-                }
-
-                // Check witness serialization
-                assert_witness_ser_eq(witness, witness_ser[witness_ser_i]);
-                witness_ser_i += 1;
-
-                assert_eq!(witness.root(), tree.root());
-
-                first = false;
-            }
-        }
-
-        // Tree should be full now
-        let node = Node::default();
-        assert!(tree.append(node).is_err());
-        for witness in witnesses.as_mut_slice() {
-            assert!(witness.append(node).is_err());
-        }
+        witness_ser
     }
 }
