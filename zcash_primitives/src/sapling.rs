@@ -13,6 +13,7 @@ use std::io::{self, Read, Write};
 use crate::merkle_tree::Hashable;
 use crate::redjubjub::{PrivateKey, PublicKey, Signature};
 use crate::JUBJUB;
+use crate::serialize::SerDe;
 
 pub const SAPLING_COMMITMENT_TREE_DEPTH: usize = 32;
 
@@ -59,7 +60,13 @@ impl Node {
     }
 }
 
-impl Hashable for Node {
+impl Default for Node {
+    fn default() -> Self {
+        Node { repr: Note::<Bls12>::uncommitted().into_repr() }
+    }
+}
+
+impl SerDe for Node {
     fn read<R: Read>(mut reader: R) -> io::Result<Self> {
         let mut repr = FrRepr::default();
         repr.read_le(&mut reader)?;
@@ -70,19 +77,16 @@ impl Hashable for Node {
         self.repr.write_le(&mut writer)
     }
 
+}
+
+impl Hashable for Node {
     fn combine(depth: usize, lhs: &Self, rhs: &Self) -> Self {
         Node {
             repr: merkle_hash(depth, &lhs.repr, &rhs.repr),
         }
     }
 
-    fn blank() -> Self {
-        Node {
-            repr: Note::<Bls12>::uncommitted().into_repr(),
-        }
-    }
-
-    fn empty_root(depth: usize) -> Self {
+    fn default_with_depth(depth: usize) -> Self {
         EMPTY_ROOTS[depth]
     }
 }
@@ -95,7 +99,7 @@ impl From<Node> for Fr {
 
 lazy_static! {
     static ref EMPTY_ROOTS: Vec<Node> = {
-        let mut v = vec![Node::blank()];
+        let mut v = vec![Node::default()];
         for d in 0..SAPLING_COMMITMENT_TREE_DEPTH {
             let next = Node::combine(d, &v[d], &v[d]);
             v.push(next);

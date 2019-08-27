@@ -3,6 +3,14 @@ use std::io::{self, Read, Write};
 
 const MAX_SIZE: usize = 0x02000000;
 
+pub trait SerDe: Sized {
+    /// Parse from the given byte source.
+    fn read<R: Read>(reader: R) -> io::Result<Self>;
+
+    /// Serializes this T.
+    fn write<W: Write>(&self, writer: W) -> io::Result<()>;
+}
+
 struct CompactSize;
 
 impl CompactSize {
