@@ -748,7 +748,7 @@ mod tests {
                 first = false;
             }
         }
-
+        
         // Tree should be full now
         let node = Node::blank();
         assert!(tree.append(node).is_err());

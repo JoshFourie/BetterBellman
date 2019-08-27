@@ -25,7 +25,7 @@ pub struct SaplingProvingContext {
     bvk: edwards::Point<Bls12, Unknown>,
 }
 
-impl SaplingProvingContext {
+impl<'a> SaplingProvingContext {
     /// Construct a new context to be used with a single transaction.
     pub fn new() -> Self {
         SaplingProvingContext {
@@ -37,94 +37,59 @@ impl SaplingProvingContext {
     /// Create the value commitment, re-randomized key, and proof for a Sapling
     /// SpendDescription, while accumulating its value commitment randomness
     /// inside the context for later use.
-    pub fn spend_proof(
-        &mut self,
-        proof_generation_key: ProofGenerationKey<Bls12>,
-        diversifier: Diversifier,
-        rcm: Fs,
-        ar: Fs,
-        value: u64,
-        anchor: Fr,
-        witness: CommitmentTreeWitness<Node>,
-        proving_key: &Parameters<Bls12>,
-        verifying_key: &PreparedVerifyingKey<Bls12>,
-        params: &JubjubBls12,
-    ) -> Result<
-        (
-            Proof<Bls12>,
-            edwards::Point<Bls12, Unknown>,
-            PublicKey<Bls12>,
-        ),
-        (),
-    > {
-        // Initialize secure RNG
+    pub fn build_spend_proof(&mut self, seed: SaplingProvingSeed) -> Option<(Proof<Bls12>, edwards::Point<Bls12, Unknown>, PublicKey<Bls12>)> {
         let mut rng = OsRng;
+        let entropy = Fs::random(&mut rng);
 
-        // We create the randomness of the value commitment
-        let rcv = Fs::random(&mut rng);
+        self.bsk.add_assign(&entropy);
 
-        // Accumulate the value commitment randomness in the context
-        {
-            let mut tmp = rcv.clone();
-            tmp.add_assign(&self.bsk);
+        let value_commitment: ValueCommitment<Bls12> = ValueCommitment::new(seed.value, entropy);
 
-            // Update the context
-            self.bsk = tmp;
-        }
+        let viewing_key = seed.proof_generation_key.into_viewing_key(&seed.params);
 
-        // Construct the value commitment
-        let value_commitment = ValueCommitment::<Bls12> {
-            value: value,
-            randomness: rcv,
-        };
-
-        // Construct the viewing key
-        let viewing_key = proof_generation_key.into_viewing_key(params);
-
-        // Construct the payment address with the viewing key / diversifier
-        let payment_address = match viewing_key.into_payment_address(diversifier, params) {
+        let payment_address = match viewing_key.into_payment_address(seed.diversifier, &seed.params) {
             Some(p) => p,
-            None => return Err(()),
+            None => return None,
         };
 
         // This is the result of the re-randomization, we compute it for the caller
-        let rk = PublicKey::<Bls12>(proof_generation_key.ak.clone().into()).randomize(
-            ar,
+        let rk = PublicKey::<Bls12>(seed.proof_generation_key.ak.clone().into()).randomize(
+            seed.ar,
             FixedGenerators::SpendingKeyGenerator,
-            params,
+            &seed.params,
         );
 
         // Let's compute the nullifier while we have the position
         let note = Note {
-            value: value,
-            g_d: diversifier
-                .g_d::<Bls12>(params)
+            value: seed.value,
+            g_d: seed.diversifier
+                .g_d::<Bls12>(&seed.params)
                 .expect("was a valid diversifier before"),
             pk_d: payment_address.pk_d.clone(),
-            r: rcm,
+            r: seed.rcm,
         };
 
-        let nullifier = note.nf(&viewing_key, witness.position, params);
+        let nullifier = note.nf(&viewing_key, seed.witness.position, &seed.params);
 
         // We now have the full witness for our circuit
         let instance = Spend {
-            params,
+            params: &seed.params,
             value_commitment: Some(value_commitment.clone()),
-            proof_generation_key: Some(proof_generation_key),
+            proof_generation_key: Some(seed.proof_generation_key),
             payment_address: Some(payment_address),
-            commitment_randomness: Some(rcm),
-            ar: Some(ar),
-            auth_path: witness
+            commitment_randomness: Some(seed.rcm),
+            ar: Some(seed.ar),
+            auth_path: seed.witness
                 .auth_path
                 .iter()
                 .map(|n| n.map(|(node, b)| (node.into(), b)))
                 .collect(),
-            anchor: Some(anchor),
+            anchor: Some(seed.anchor),
         };
 
-        // Create proof
-        let proof =
-            create_random_proof(instance, proving_key, &mut rng).expect("proving should not fail");
+        // Create proof: why is it not infallible...
+        let proof = create_random_proof(instance, &seed.proving_key, &mut rng)
+            .expect("proving should not fail");
 
         // Try to verify the proof:
         // Construct public input for circuit
@@ -135,11 +100,11 @@ impl SaplingProvingContext {
             public_input[1] = y;
         }
         {
-            let (x, y) = value_commitment.cm(params).into_xy();
+            let (x, y) = value_commitment.cm(&seed.params).into_xy();
             public_input[2] = x;
             public_input[3] = y;
         }
-        public_input[4] = anchor;
+        public_input[4] = seed.anchor;
 
         // Add the nullifier through multiscalar packing
         {
@@ -153,29 +118,14 @@ impl SaplingProvingContext {
         }
 
         // Verify the proof
-        match verify_proof(verifying_key, &proof, &public_input[..]) {
-            // No error, and proof verification successful
-            Ok(true) => {}
-
-            // Any other case
-            _ => {
-                return Err(());
-            }
-        }
+        verify_proof(&seed.verifying_key, &proof, &public_input).err();
 
         // Compute value commitment
-        let value_commitment: edwards::Point<Bls12, Unknown> = value_commitment.cm(params).into();
+        let value_commitment: edwards::Point<Bls12, Unknown> = value_commitment.cm(&seed.params).into();
 
-        // Accumulate the value commitment in the context
-        {
-            let mut tmp = value_commitment.clone();
-            tmp = tmp.add(&self.bvk, params);
+        self.bvk = value_commitment.add(&self.bvk, &seed.params);
 
-            // Update the context
-            self.bvk = tmp;
-        }
-
-        Ok((proof, value_commitment, rk))
+        Some((proof, value_commitment, rk))
     }
 
     /// Create the value commitment and proof for a Sapling OutputDescription,
@@ -196,11 +146,11 @@ impl SaplingProvingContext {
         // We construct ephemeral randomness for the value commitment. This
         // randomness is not given back to the caller, but the synthetic
         // blinding factor `bsk` is accumulated in the context.
-        let rcv = Fs::random(&mut rng);
+        let entropy = Fs::random(&mut rng);
 
         // Accumulate the value commitment randomness in the context
         {
-            let mut tmp = rcv.clone();
+            let mut tmp = entropy.clone();
             tmp.negate(); // Outputs subtract from the total.
             tmp.add_assign(&self.bsk);
 
@@ -211,7 +161,7 @@ impl SaplingProvingContext {
         // Construct the value commitment for the proof instance
         let value_commitment = ValueCommitment::<Bls12> {
             value: value,
-            randomness: rcv,
+            randomness: entropy,
         };
 
         // We now have a full witness for the output proof.
@@ -224,8 +174,8 @@ impl SaplingProvingContext {
         };
 
         // Create proof
-        let proof =
-            create_random_proof(instance, proving_key, &mut rng).expect("proving should not fail");
+        let proof = create_random_proof(instance, proving_key, &mut rng)
+            .expect("proving should not fail");
 
         // Compute the actual value commitment
         let value_commitment: edwards::Point<Bls12, Unknown> = value_commitment.cm(params).into();
@@ -295,5 +245,46 @@ impl SaplingProvingContext {
             FixedGenerators::ValueCommitmentRandomness,
             params,
         ))
+    }
+}
+
+pub struct SaplingProvingSeed {
+    proof_generation_key: ProofGenerationKey<Bls12>,
+    diversifier: Diversifier,
+    rcm: Fs,
+    ar: Fs,
+    value: u64,
+    anchor: Fr,
+    witness: CommitmentTreeWitness<Node>,
+    proving_key: Parameters<Bls12>,
+    verifying_key: PreparedVerifyingKey<Bls12>,
+    params: JubjubBls12,
+}   
+
+impl SaplingProvingSeed {
+    pub fn new(
+        proof_generation_key: ProofGenerationKey<Bls12>,
+        diversifier: Diversifier,
+        rcm: Fs,
+        ar: Fs,
+        value: u64,
+        anchor: Fr,
+        witness: CommitmentTreeWitness<Node>,
+        proving_key: Parameters<Bls12>,
+        verifying_key: PreparedVerifyingKey<Bls12>,
+        params: JubjubBls12,
+    ) -> Self {
+        Self {
+            proof_generation_key,
+            diversifier,
+            rcm,
+            ar,
+            value,
+            anchor,
+            witness,
+            proving_key,
+            verifying_key,
+            params,   
+        }
     }
 }

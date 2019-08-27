@@ -7,6 +7,7 @@ use std::path::Path;
 use zcash_primitives::{
     jubjub::{edwards, fs::Fs, Unknown},
     primitives::{Diversifier, PaymentAddress, ProofGenerationKey},
+    prover
 };
 use zcash_primitives::{
     merkle_tree::CommitmentTreeWitness,
@@ -17,7 +18,7 @@ use zcash_primitives::{
     JUBJUB,
 };
 
-use crate::{load_parameters, sapling::SaplingProvingContext};
+use crate::{load_parameters, sapling::{SaplingProvingContext, SaplingProvingSeed}};
 
 const SAPLING_SPEND_HASH: &str = "8270785a1a0d0bc77196f000ee6d221c9c9894f55307bd9357c3f0105d31ca63991ab91324160d8f53e2bbd3c2633a6eb8bdf5205d822e7f3f73edac51b2b70c";
 const SAPLING_OUTPUT_HASH: &str = "657e3d38dbb5cb5e7dd2970e8b03d69b4787dd907285b5a7f0790dcc8072f60bf593b32cc2d1c030e00ff5ae64bf84c5c3beb84ddc841d48264b4a171744d028";
@@ -112,54 +113,29 @@ impl LocalTxProver {
 }
 
 impl TxProver for LocalTxProver {
-    type SaplingProvingContext = SaplingProvingContext;
 
-    fn new_sapling_proving_context(&self) -> Self::SaplingProvingContext {
+    type Context = SaplingProvingContext;
+
+    type Order = SaplingProvingSeed;
+
+    fn new_sapling_proving_context(&self) -> Self::Context {
         SaplingProvingContext::new()
     }
 
-    fn spend_proof(
-        &self,
-        ctx: &mut Self::SaplingProvingContext,
-        proof_generation_key: ProofGenerationKey<Bls12>,
-        diversifier: Diversifier,
-        rcm: Fs,
-        ar: Fs,
-        value: u64,
-        anchor: Fr,
-        witness: CommitmentTreeWitness<Node>,
-    ) -> Result<
-        (
-            [u8; GROTH_PROOF_SIZE],
-            edwards::Point<Bls12, Unknown>,
-            PublicKey<Bls12>,
-        ),
-        (),
-    > {
-        let (proof, cv, rk) = ctx.spend_proof(
-            proof_generation_key,
-            diversifier,
-            rcm,
-            ar,
-            value,
-            anchor,
-            witness,
-            &self.spend_params,
-            &self.spend_vk,
-            &JUBJUB,
-        )?;
+    fn spend_proof(&self, ctx: &mut Self::Context, order: Self::Order) -> Option<prover::SpendProof> {
+        
+        let (proof, cv, rk) = ctx.build_spend_proof(order)?;
 
         let mut zkproof = [0u8; GROTH_PROOF_SIZE];
-        proof
-            .write(&mut zkproof[..])
-            .expect("should be able to serialize a proof");
 
-        Ok((zkproof, cv, rk))
+        proof.write(&mut zkproof[..]).expect("should be able to serialize a proof");
+
+        Some(prover::SpendProof::new(zkproof, cv, Some(rk)))
     }
 
     fn output_proof(
         &self,
-        ctx: &mut Self::SaplingProvingContext,
+        ctx: &mut Self::Context,
         esk: Fs,
         payment_address: PaymentAddress<Bls12>,
         rcm: Fs,
@@ -184,10 +160,22 @@ impl TxProver for LocalTxProver {
 
     fn binding_sig(
         &self,
-        ctx: &mut Self::SaplingProvingContext,
+        ctx: &mut Self::Context,
         value_balance: Amount,
         sighash: &[u8; 32],
     ) -> Result<Signature, ()> {
         ctx.binding_sig(value_balance, sighash, &JUBJUB)
+    }
+
+    fn order(
+        proof_generation_key: ProofGenerationKey<Bls12>,
+        diversifier: Diversifier,
+        rcm: Fs,
+        ar: Fs,
+        value: u64,
+        anchor: Fr,
+        witness: CommitmentTreeWitness<Node>,
+    ) -> Self::Order {
+        unimplemented!()  
     }
 }

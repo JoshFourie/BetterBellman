@@ -20,8 +20,7 @@ pub struct ValueCommitment<E: JubjubEngine> {
 
 impl<E: JubjubEngine> ValueCommitment<E> {
     pub fn cm(&self, params: &E::Params) -> edwards::Point<E, PrimeOrder> {
-        params
-            .generator(FixedGenerators::ValueCommitmentValue)
+        params.generator(FixedGenerators::ValueCommitmentValue)
             .mul(self.value, params)
             .add(
                 &params
@@ -29,6 +28,11 @@ impl<E: JubjubEngine> ValueCommitment<E> {
                     .mul(self.randomness, params),
                 params,
             )
+    }
+
+    #[inline]
+    pub fn new(value: u64, randomness: E::Fs) -> Self {
+        Self { value, randomness }
     }
 }
 
