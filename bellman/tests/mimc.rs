@@ -16,7 +16,7 @@ use bellman::{Circuit, ConstraintSystem, SynthesisError};
 
 // We're going to use the Groth16 proving system.
 use bellman::groth16::{
-    create_random_proof, generate_random_parameters, prepare_verifying_key, verify_proof, Proof,
+    ProvingSystem, generate_random_parameters, prepare_verifying_key, verify_proof, Proof,
 };
 
 const MIMC_ROUNDS: usize = 322;
@@ -203,7 +203,7 @@ fn test_mimc() {
             };
 
             // Create a groth16 proof with our parameters.
-            let proof = create_random_proof(c, &params, rng).unwrap();
+            let proof = ProvingSystem::random(c, &params, rng).unwrap();
 
             proof.write(&mut proof_vec).unwrap();
         }

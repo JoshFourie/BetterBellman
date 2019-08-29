@@ -1,3 +1,5 @@
+#![feature(try_trait)]
+
 #[cfg(feature = "multicore")]
 extern crate crossbeam;
 
@@ -23,6 +25,7 @@ use ff::{Field, ScalarEngine};
 use std::error::Error;
 use std::fmt;
 use std::io;
+use std::option;
 use std::marker::PhantomData;
 use std::ops::{Add, Sub};
 
@@ -186,6 +189,14 @@ pub enum SynthesisError {
     MalformedVerifyingKey,
     /// During CRS generation, we observed an unconstrained auxiliary variable
     UnconstrainedVariable,
+    /// During synthesis, we called an operation on a None.
+    Null
+}
+
+impl From<option::NoneError> for SynthesisError {
+    fn from(_: option::NoneError) -> Self {
+        SynthesisError::Null
+    }
 }
 
 impl From<io::Error> for SynthesisError {
@@ -207,6 +218,7 @@ impl Error for SynthesisError {
             SynthesisError::IoError(_) => "encountered an I/O error",
             SynthesisError::MalformedVerifyingKey => "malformed verifying key",
             SynthesisError::UnconstrainedVariable => "auxiliary variable was unconstrained",
+            SynthesisError::Null => "encountered an operation on a None"
         }
     }
 }

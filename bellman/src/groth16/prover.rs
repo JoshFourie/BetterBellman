@@ -8,96 +8,66 @@ use ff::{Field, PrimeField};
 use group::{CurveAffine, CurveProjective};
 use pairing::Engine;
 
-use super::{ParameterSource, Proof};
+use super::{ParameterSource, Proof, Result};
 
 use crate::{Circuit, ConstraintSystem, Index, LinearCombination, SynthesisError, Variable};
-
 use crate::domain::{EvaluationDomain, Scalar};
-
 use crate::multiexp::{multiexp, DensityTracker, FullDensity};
-
 use crate::multicore::Worker;
 
-fn eval<E: Engine>(
-    lc: &LinearCombination<E>,
-    mut input_density: Option<&mut DensityTracker>,
-    mut aux_density: Option<&mut DensityTracker>,
-    input_assignment: &[E::Fr],
-    aux_assignment: &[E::Fr],
-) -> E::Fr {
-    let mut acc = E::Fr::zero();
+pub struct ProvingSystem<E: Engine> {
+    density: QueryDensity,
+    eval: PolynomialEvaluation<E>,
+    assignment: ProvingAssignment<E>
+}
 
-    for &(index, coeff) in lc.0.iter() {
-        let mut tmp;
-
-        match index {
-            Variable(Index::Input(i)) => {
-                tmp = input_assignment[i];
-                if let Some(ref mut v) = input_density {
-                    v.inc(i);
+impl<E: Engine> ProvingSystem<E> {
+    fn eval<F>(linear: &LinearCombination<E>, mut func: F) -> E::Fr 
+    where
+        F: FnMut(Index) -> E::Fr
+    {
+        linear.0
+            .iter()
+            .fold(E::Fr::zero(), |mut acc, (idx, coeff)| {
+                let mut buf: _ = func(idx.0);
+                if coeff != &E::Fr::one() {
+                    buf.mul_assign(&coeff)
                 }
-            }
-            Variable(Index::Aux(i)) => {
-                tmp = aux_assignment[i];
-                if let Some(ref mut v) = aux_density {
-                    v.inc(i);
-                }
-            }
-        }
-
-        if coeff == E::Fr::one() {
-            acc.add_assign(&tmp);
-        } else {
-            tmp.mul_assign(&coeff);
-            acc.add_assign(&tmp);
-        }
+                acc.add_assign(&buf);
+                acc 
+            })
     }
-
-    acc
 }
 
-struct ProvingAssignment<E: Engine> {
-    // Density of queries
-    a_aux_density: DensityTracker,
-    b_input_density: DensityTracker,
-    b_aux_density: DensityTracker,
-
-    // Evaluations of A, B, C polynomials
-    a: Vec<Scalar<E>>,
-    b: Vec<Scalar<E>>,
-    c: Vec<Scalar<E>>,
-
-    // Assignments of variables
-    input_assignment: Vec<E::Fr>,
-    aux_assignment: Vec<E::Fr>,
-}
-
-impl<E: Engine> ConstraintSystem<E> for ProvingAssignment<E> {
+impl<E> ConstraintSystem<E> for ProvingSystem<E> 
+where
+    E: Engine
+{
     type Root = Self;
 
-    fn alloc<F, A, AR>(&mut self, _: A, f: F) -> Result<Variable, SynthesisError>
+    fn alloc<F, A, AR>(&mut self, _: A, f: F) -> Result<Variable>
     where
-        F: FnOnce() -> Result<E::Fr, SynthesisError>,
+        F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
         AR: Into<String>,
     {
-        self.aux_assignment.push(f()?);
-        self.a_aux_density.add_element();
-        self.b_aux_density.add_element();
+        self.assignment.aux.push(f()?);
+        self.density.a_aux.add_element();
+        self.density.b_aux.add_element();
 
-        Ok(Variable(Index::Aux(self.aux_assignment.len() - 1)))
+        Ok(Variable(Index::Aux(self.assignment.aux.len() - 1)))
     }
 
-    fn alloc_input<F, A, AR>(&mut self, _: A, f: F) -> Result<Variable, SynthesisError>
+    fn alloc_input<F, A, AR>(&mut self, _: A, f: F) -> Result<Variable>
     where
-        F: FnOnce() -> Result<E::Fr, SynthesisError>,
+        F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
         AR: Into<String>,
     {
-        self.input_assignment.push(f()?);
-        self.b_input_density.add_element();
+        self.assignment.input.push(f()?);
+        self.density.b_input.add_element();
 
-        Ok(Variable(Index::Input(self.input_assignment.len() - 1)))
+        Ok(Variable(Index::Input(self.assignment.input.len() - 1)))
     }
 
     fn enforce<A, AR, LA, LB, LC>(&mut self, _: A, a: LA, b: LB, c: LC)
@@ -112,34 +82,52 @@ impl<E: Engine> ConstraintSystem<E> for ProvingAssignment<E> {
         let b = b(LinearCombination::zero());
         let c = c(LinearCombination::zero());
 
-        self.a.push(Scalar(eval(
+        let eval_a: E::Fr = ProvingSystem::eval(
             &a,
-            // Inputs have full density in the A query
-            // because there are constraints of the
-            // form x * 0 = 0 for each input.
-            None,
-            Some(&mut self.a_aux_density),
-            &self.input_assignment,
-            &self.aux_assignment,
-        )));
-        self.b.push(Scalar(eval(
+            |index| match index {
+                Index::Input(i) => self.assignment.input[i],
+                Index::Aux(i) => {
+                    self.density.a_aux.inc(i);
+                    self.assignment.aux[i]
+                }
+            }
+        );
+        self.eval.a
+            .as_mut()
+            .unwrap()
+            .push(Scalar(eval_a));
+
+        let eval_b: E::Fr = ProvingSystem::eval(
             &b,
-            Some(&mut self.b_input_density),
-            Some(&mut self.b_aux_density),
-            &self.input_assignment,
-            &self.aux_assignment,
-        )));
-        self.c.push(Scalar(eval(
+            |index| match index {
+                Index::Input(i) => {
+                    self.density.b_input.inc(i);
+                    self.assignment.input[i]
+                },
+                Index::Aux(i) => {
+                    self.density.b_aux.inc(i);
+                    self.assignment.aux[i]
+                }
+            }
+        );
+        self.eval
+            .b
+            .as_mut()
+            .unwrap()
+            .push(Scalar(eval_b));
+
+        let eval_c: E::Fr = ProvingSystem::eval(
             &c,
-            // There is no C polynomial query,
-            // though there is an (beta)A + (alpha)B + C
-            // query for all aux variables.
-            // However, that query has full density.
-            None,
-            None,
-            &self.input_assignment,
-            &self.aux_assignment,
-        )));
+            |index| match index {
+                Index::Input(i) => self.assignment.input[i],
+                Index::Aux(i) => self.assignment.aux[i]
+            }
+        );
+        self.eval
+            .c
+            .as_mut()
+            .unwrap()
+            .push(Scalar(eval_c));
     }
 
     fn push_namespace<NR, N>(&mut self, _: N)
@@ -159,59 +147,24 @@ impl<E: Engine> ConstraintSystem<E> for ProvingAssignment<E> {
     }
 }
 
-pub fn create_random_proof<E, C, R, P: ParameterSource<E>>(
-    circuit: C,
-    params: P,
-    rng: &mut R,
-) -> Result<Proof<E>, SynthesisError>
-where
-    E: Engine,
-    C: Circuit<E>,
-    R: RngCore,
-{
-    let r = E::Fr::random(rng);
-    let s = E::Fr::random(rng);
+impl<E: Engine> ProvingSystem<E> {
+    pub fn random<C, R, P>(circuit: C, params: P, rng: &mut R) -> Result<Proof<E>>
+    where
+        C: Circuit<E>,
+        P: ParameterSource<E>,
+        R: RngCore,
+    {
+        let r = E::Fr::random(rng);
+        let s = E::Fr::random(rng);
 
-    create_proof::<E, C, P>(circuit, params, r, s)
-}
-
-pub fn create_proof<E, C, P: ParameterSource<E>>(
-    circuit: C,
-    mut params: P,
-    r: E::Fr,
-    s: E::Fr,
-) -> Result<Proof<E>, SynthesisError>
-where
-    E: Engine,
-    C: Circuit<E>,
-{
-    let mut prover = ProvingAssignment {
-        a_aux_density: DensityTracker::new(),
-        b_input_density: DensityTracker::new(),
-        b_aux_density: DensityTracker::new(),
-        a: vec![],
-        b: vec![],
-        c: vec![],
-        input_assignment: vec![],
-        aux_assignment: vec![],
-    };
-
-    prover.alloc_input(|| "", || Ok(E::Fr::one()))?;
-
-    circuit.synthesize(&mut prover)?;
-
-    for i in 0..prover.input_assignment.len() {
-        prover.enforce(|| "", |lc| lc + Variable(Index::Input(i)), |lc| lc, |lc| lc);
+        create_proof::<E, C, P>(circuit, params, r, s)
     }
 
-    let worker = Worker::new();
-
-    let vk = params.get_vk(prover.input_assignment.len())?;
-
-    let h = {
-        let mut a = EvaluationDomain::from_coeffs(prover.a)?;
-        let mut b = EvaluationDomain::from_coeffs(prover.b)?;
-        let mut c = EvaluationDomain::from_coeffs(prover.c)?;
+    fn as_primefield(&mut self, worker: &Worker) ->  Result<Arc<Vec<<<E as ff::ScalarEngine>::Fr as PrimeField>::Repr>>> {
+        let mut a = EvaluationDomain::from_coeffs(self.eval.a.take()?)?;
+        let mut b = EvaluationDomain::from_coeffs(self.eval.b.take()?)?;
+        let mut c = EvaluationDomain::from_coeffs(self.eval.c.take()?)?;
+        
         a.ifft(&worker);
         a.coset_fft(&worker);
         b.ifft(&worker);
@@ -225,26 +178,66 @@ where
         drop(c);
         a.divide_by_z_on_coset(&worker);
         a.icoset_fft(&worker);
-        let mut a = a.into_coeffs();
-        let a_len = a.len() - 1;
-        a.truncate(a_len);
-        // TODO: parallelize if it's even helpful
-        let a = Arc::new(a.into_iter().map(|s| s.0.into_repr()).collect::<Vec<_>>());
 
+        let mut a = a.into_coeffs();
+        let new_len = a.len() - 1;
+        a.truncate(new_len);
+
+        let repr: Vec<_> =  a.into_iter()
+            .map(|s| s.0.into_repr())
+            .collect();
+
+        Ok(Arc::new(repr))
+    }   
+}
+
+pub fn create_proof<E, C, P: ParameterSource<E>>(
+    circuit: C,
+    mut params: P,
+    r: E::Fr,
+    s: E::Fr,
+) -> Result<Proof<E>>
+where
+    E: Engine,
+    C: Circuit<E>,
+{
+    let mut prover: _ = ProvingSystem::default();
+
+    prover.alloc_input(
+        || "", 
+        || Ok(E::Fr::one())
+    )?;
+
+    circuit.synthesize(&mut prover)?;
+
+    for i in 0..prover.assignment.input.len() {
+        prover.enforce(
+            || "", 
+            |lc| lc + Variable(Index::Input(i)), 
+            |lc| lc, |lc| lc
+        );
+    }
+
+    let worker = Worker::new();
+
+    let vk = params.get_vk(prover.assignment.input.len())?;
+
+    let h = {
+        let a: _ = prover.as_primefield(&worker)?;
         multiexp(&worker, params.get_h(a.len())?, FullDensity, a)
     };
 
     // TODO: parallelize if it's even helpful
     let input_assignment = Arc::new(
-        prover
-            .input_assignment
+        prover.assignment
+            .input
             .into_iter()
             .map(|s| s.into_repr())
             .collect::<Vec<_>>(),
     );
     let aux_assignment = Arc::new(
-        prover
-            .aux_assignment
+        prover.assignment
+            .aux
             .into_iter()
             .map(|s| s.into_repr())
             .collect::<Vec<_>>(),
@@ -257,10 +250,14 @@ where
         aux_assignment.clone(),
     );
 
-    let a_aux_density_total = prover.a_aux_density.get_total_density();
+    let a_aux_density_total = prover.density
+        .a_aux
+        .get_total_density();
 
-    let (a_inputs_source, a_aux_source) =
-        params.get_a(input_assignment.len(), a_aux_density_total)?;
+    let (a_inputs_source, a_aux_source) = params.get_a(
+        input_assignment.len(), 
+        a_aux_density_total
+    )?;
 
     let a_inputs = multiexp(
         &worker,
@@ -271,22 +268,22 @@ where
     let a_aux = multiexp(
         &worker,
         a_aux_source,
-        Arc::new(prover.a_aux_density),
+        Arc::new(prover.density.a_aux),
         aux_assignment.clone(),
     );
 
-    let b_input_density = Arc::new(prover.b_input_density);
-    let b_input_density_total = b_input_density.get_total_density();
-    let b_aux_density = Arc::new(prover.b_aux_density);
+    let b_input = Arc::new(prover.density.b_input);
+    let b_input_total = b_input.get_total_density();
+    let b_aux_density = Arc::new(prover.density.b_aux);
     let b_aux_density_total = b_aux_density.get_total_density();
 
     let (b_g1_inputs_source, b_g1_aux_source) =
-        params.get_b_g1(b_input_density_total, b_aux_density_total)?;
+        params.get_b_g1(b_input_total, b_aux_density_total)?;
 
     let b_g1_inputs = multiexp(
         &worker,
         b_g1_inputs_source,
-        b_input_density.clone(),
+        b_input.clone(),
         input_assignment.clone(),
     );
     let b_g1_aux = multiexp(
@@ -297,12 +294,12 @@ where
     );
 
     let (b_g2_inputs_source, b_g2_aux_source) =
-        params.get_b_g2(b_input_density_total, b_aux_density_total)?;
+        params.get_b_g2(b_input_total, b_aux_density_total)?;
 
     let b_g2_inputs = multiexp(
         &worker,
         b_g2_inputs_source,
-        b_input_density,
+        b_input,
         input_assignment,
     );
     let b_g2_aux = multiexp(&worker, b_g2_aux_source, b_aux_density, aux_assignment);
@@ -349,3 +346,59 @@ where
         c: g_c.into_affine(),
     })
 }
+
+impl<E: Engine> Default for ProvingSystem<E> {
+    fn default() -> Self {
+        ProvingSystem {
+            density: QueryDensity::default(),           
+            eval: PolynomialEvaluation::default(),
+            assignment: ProvingAssignment::default()
+        }
+    }
+}
+
+struct QueryDensity {
+    a_aux: DensityTracker,
+    b_input: DensityTracker,
+    b_aux: DensityTracker,
+}
+
+impl Default for QueryDensity {
+    fn default() -> Self {
+        QueryDensity {
+            a_aux: DensityTracker::new(),
+            b_input: DensityTracker::new(),
+            b_aux: DensityTracker::new()
+        }
+    }
+}
+
+struct PolynomialEvaluation<E: Engine> {
+    a: Option<Vec<Scalar<E>>>,
+    b: Option<Vec<Scalar<E>>>,
+    c: Option<Vec<Scalar<E>>>,
+}
+
+impl<E: Engine> Default for PolynomialEvaluation<E> {
+    fn default() -> Self {
+        PolynomialEvaluation {
+            a: Some(Vec::new()),
+            b: Some(Vec::new()),
+            c: Some(Vec::new())
+        }
+    }
+}
+
+struct ProvingAssignment<E: Engine> {
+    input: Vec<E::Fr>,
+    aux: Vec<E::Fr>,
+}
+
+impl<E: Engine> Default for ProvingAssignment<E> {
+    fn default() -> Self {
+        ProvingAssignment {
+            input: Vec::new(),
+            aux: Vec::new()
+        }
+    }
+} 
