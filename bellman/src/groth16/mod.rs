@@ -531,7 +531,7 @@ mod test_with_bls12_381 {
             let mut c = a;
             c.mul_assign(&b);
 
-            let proof = prover::ProvingSystem::random(
+            let proof = prover::create_random_proof(
                 MySillyCircuit {
                     a: Some(a),
                     b: Some(b),
