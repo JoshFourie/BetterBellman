@@ -17,7 +17,11 @@ mod context;
 mod fourier;
 mod source;
 
+<<<<<<< HEAD
 type AssignmentField<E> = Arc<Vec<<<E as ScalarEngine>::Fr as PrimeField>::Repr>>;
+=======
+type ArcAssignment<E> = Arc<Vec<<<E as ScalarEngine>::Fr as PrimeField>::Repr>>;
+>>>>>>> cc85ab246c5a9ca813760717d9600ccdf6bb4603
 
 pub struct ProvingSystem<E: Engine> {
     density: QueryDensity,

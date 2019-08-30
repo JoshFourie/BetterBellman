@@ -1,7 +1,11 @@
 use std::sync::Arc;
 use pairing::Engine;
 
+<<<<<<< HEAD
 use super::{Future, ParameterSource, AssignmentField, Result, source};
+=======
+use super::{Future, ParameterSource, ArcAssignment, Result, source};
+>>>>>>> cc85ab246c5a9ca813760717d9600ccdf6bb4603
 
 use crate::multiexp::{multiexp, FullDensity};
 use crate::multicore::Worker;
@@ -19,7 +23,11 @@ where
     pub fn try_new<P: ParameterSource<E>>(
         worker: &Worker, 
         src: source::Answer<P,E>,
+<<<<<<< HEAD
         input: AssignmentField<E>
+=======
+        input: ArcAssignment<E>
+>>>>>>> cc85ab246c5a9ca813760717d9600ccdf6bb4603
     ) -> Result<Self> {
         let a: E::G1 = multiexp(
             &worker,
@@ -59,7 +67,11 @@ where
     pub fn try_new<P>(
         worker: &Worker,
         src: source::Auxiliary<P,E>,
+<<<<<<< HEAD
         assignment: AssignmentField<E>
+=======
+        assignment: ArcAssignment<E>
+>>>>>>> cc85ab246c5a9ca813760717d9600ccdf6bb4603
     ) -> Result<Self> 
     where
         P: ParameterSource<E>
