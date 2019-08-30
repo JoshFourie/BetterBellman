@@ -4,11 +4,7 @@ use ff::PrimeField;
 use pairing::Engine;
 
 use crate::domain::{EvaluationDomain, Scalar};
-<<<<<<< HEAD
 use super::{PolynomialEvaluation, Worker, AssignmentField, Result};
-=======
-use super::{PolynomialEvaluation, Worker, ArcAssignment, Result};
->>>>>>> cc85ab246c5a9ca813760717d9600ccdf6bb4603
 
 pub struct FourierField<'a, E: Engine> {
     a: EvaluationDomain<E,Scalar<E>>,
@@ -28,11 +24,7 @@ where
         Ok(FourierField {a, b, c, work})
     }
 
-<<<<<<< HEAD
     pub fn fft_shortcut(self) ->  Result<AssignmentField<E>> {
-=======
-    pub fn fft_shortcut(self) ->  Result<ArcAssignment<E>> {
->>>>>>> cc85ab246c5a9ca813760717d9600ccdf6bb4603
         let mut a: _ = self.transform().into_coefficient();
         let new_len = a.len() - 1;
         a.truncate(new_len);
