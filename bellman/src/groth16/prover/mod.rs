@@ -7,7 +7,7 @@ use pairing::Engine;
 
 use super::{ParameterSource, Proof, Result};
 
-use crate::{Circuit, ConstraintSystem, Index, SynthesisError, Variable};
+use crate::{Circuit, ConstraintSystem, SynthesisError};
 
 mod system;
 use system::*;
