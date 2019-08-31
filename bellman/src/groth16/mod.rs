@@ -400,66 +400,53 @@ pub struct PreparedVerifyingKey<E: Engine> {
 }
 
 pub trait ParameterSource<E: Engine> {
+
     type G1Builder: SourceBuilder<E::G1Affine>;
+
     type G2Builder: SourceBuilder<E::G2Affine>;
 
-    fn get_vk(&mut self, num_ic: usize) -> Result<VerifyingKey<E>>;
-    fn get_h(&mut self, num_h: usize) -> Result<Self::G1Builder>;
-    fn get_l(&mut self, num_l: usize) -> Result<Self::G1Builder>;
-    fn get_a(
-        &mut self,
-        num_inputs: usize,
-        num_aux: usize,
-    ) -> Result<(Self::G1Builder, Self::G1Builder)>;
-    fn get_b_g1(
-        &mut self,
-        num_inputs: usize,
-        num_aux: usize,
-    ) -> Result<(Self::G1Builder, Self::G1Builder)>;
-    fn get_b_g2(
-        &mut self,
-        num_inputs: usize,
-        num_aux: usize,
-    ) -> Result<(Self::G2Builder, Self::G2Builder)>;
+    fn get_vk(&mut self) -> Result<VerifyingKey<E>>;
+
+    fn get_h(&mut self) -> Result<Self::G1Builder>;
+
+    fn get_l(&mut self) -> Result<Self::G1Builder>;
+
+    fn get_a(&mut self, num_inputs: usize) -> Result<(Self::G1Builder,Self::G1Builder)>;
+
+    fn get_b_g1(&mut self, num_inputs: usize) -> Result<(Self::G1Builder, Self::G1Builder)>;
+
+    fn get_b_g2(&mut self, num_inputs: usize) -> Result<(Self::G2Builder, Self::G2Builder)>;
 }
 
-impl<'a, E: Engine> ParameterSource<E> for &'a Parameters<E> {
+impl<'a, E> ParameterSource<E> for &'a Parameters<E> 
+where
+    E: Engine
+{
     type G1Builder = (Arc<Vec<E::G1Affine>>, usize);
+
     type G2Builder = (Arc<Vec<E::G2Affine>>, usize);
 
-    fn get_vk(&mut self, _: usize) -> Result<VerifyingKey<E>> {
+    fn get_vk(&mut self) -> Result<VerifyingKey<E>> {
         Ok(self.vk.clone())
     }
 
-    fn get_h(&mut self, _: usize) -> Result<Self::G1Builder> {
+    fn get_h(&mut self) -> Result<Self::G1Builder> {
         Ok((self.h.clone(), 0))
     }
 
-    fn get_l(&mut self, _: usize) -> Result<Self::G1Builder> {
+    fn get_l(&mut self) -> Result<Self::G1Builder> {
         Ok((self.l.clone(), 0))
     }
 
-    fn get_a(
-        &mut self,
-        num_inputs: usize,
-        _: usize,
-    ) -> Result<(Self::G1Builder, Self::G1Builder)> {
+    fn get_a(&mut self, num_inputs: usize) -> Result<(Self::G1Builder, Self::G1Builder)> {
         Ok(((self.a.clone(), 0), (self.a.clone(), num_inputs)))
     }
 
-    fn get_b_g1(
-        &mut self,
-        num_inputs: usize,
-        _: usize,
-    ) -> Result<(Self::G1Builder, Self::G1Builder)> {
+    fn get_b_g1(&mut self, num_inputs: usize) -> Result<(Self::G1Builder, Self::G1Builder)> {
         Ok(((self.b_g1.clone(), 0), (self.b_g1.clone(), num_inputs)))
     }
 
-    fn get_b_g2(
-        &mut self,
-        num_inputs: usize,
-        _: usize,
-    ) -> Result<(Self::G2Builder, Self::G2Builder)> {
+    fn get_b_g2(&mut self, num_inputs: usize) -> Result<(Self::G2Builder, Self::G2Builder)> {
         Ok(((self.b_g2.clone(), 0), (self.b_g2.clone(), num_inputs)))
     }
 }

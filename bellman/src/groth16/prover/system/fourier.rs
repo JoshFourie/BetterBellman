@@ -24,6 +24,7 @@ where
         Ok(FourierField {a, b, c, worker})
     }
 
+    // The efficiency shortcut for building coefficients from the groth16 paper.
     pub fn fft_shortcut(self) ->  Result<AssignmentField<E>> {
         let mut a: _ = self.transform().into_coefficient();
         let new_len = a.len() - 1;

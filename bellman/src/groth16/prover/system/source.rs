@@ -21,13 +21,11 @@ where
         let b_input_density: _ = Arc::new(density.b_input);
         let b_aux_density: _ = Arc::new(density.b_aux);
 
-        let a_aux_total: usize = a_aux_density.get_total_density();
         let b_input_total: usize = b_input_density.get_total_density();
-        let b_aux_total: usize = b_aux_density.get_total_density();       
-
-        let (a_input_src, a_aux_src): _ = params.get_a(a_input, a_aux_total)?;
-        let (b1_input_src, b1_aux_src): _ = params.get_b_g1(b_input_total, b_aux_total)?;
-        let (b2_input_src, b2_aux_src): _ = params.get_b_g2(b_input_total, b_aux_total)?;
+        
+        let (a_input_src, a_aux_src): _ = params.get_a(a_input)?;
+        let (b1_input_src, b1_aux_src): _ = params.get_b_g1(b_input_total)?;
+        let (b2_input_src, b2_aux_src): _ = params.get_b_g2(b_input_total)?;
 
         let answer_src: _ = Answer::new(
             a_input_src, 

@@ -34,7 +34,7 @@ where
     {
         let worker: _ = Worker::new();
 
-        let vk: _ = Builder::try_vk(params, prover.assignment.input.len())?;
+        let vk: _ = Builder::try_vk(params)?;
 
         let h: _ = Builder::try_h(&mut prover.eval, &worker, params)?;
 
@@ -116,7 +116,7 @@ where
     {
         let field: _ = fourier::FourierField::new(eval, worker)?;
         let linear_coeff: _ = field.fft_shortcut()?;
-        Ok(multiexp(&worker, params.get_h(linear_coeff.len())?, FullDensity, linear_coeff))
+        Ok(multiexp(&worker, params.get_h()?, FullDensity, linear_coeff))
     }
 
     fn try_l<R>(aux: &AssignmentField<E>, worker: &Worker, params: &mut R) -> Result<impl Future<Item=E::G1, Error=SynthesisError>> 
@@ -125,18 +125,18 @@ where
     {
         let l: _ = multiexp(
             &worker,
-            params.get_l(aux.len())?,
+            params.get_l()?,
             FullDensity,
             aux.clone(),
         );
         Ok(l)
     }
 
-    fn try_vk<S>(params: &mut S, input_len: usize) -> Result<VerifyingKey<E>> 
+    fn try_vk<S>(params: &mut S) -> Result<VerifyingKey<E>> 
     where
         S: ParameterSource<E>
     {
-        let vk = params.get_vk(input_len)?;
+        let vk = params.get_vk()?;
         if vk.delta_g1.is_zero() || vk.delta_g2.is_zero() {
             // If this element is zero, someone is trying to perform a
             // subversion-CRS attack.
