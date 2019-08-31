@@ -16,11 +16,10 @@ impl<E> Answer<E>
 where
     E: Engine
 {
-    pub fn try_new<P: ParameterSource<E>>(
-        worker: &Worker, 
-        src: source::Answer<P,E>,
-        input: AssignmentField<E>
-    ) -> Result<Self> {
+    pub fn try_new<P>(worker: &Worker, src: source::Answer<P,E>, input: AssignmentField<E>) -> Result<Self> 
+    where
+        P: ParameterSource<E>
+    {
         let a: E::G1 = multiexp(
             &worker,
             src.a_input_src,
@@ -56,11 +55,7 @@ impl<E> Auxiliary<E>
 where
     E: Engine
 {
-    pub fn try_new<P>(
-        worker: &Worker,
-        src: source::Auxiliary<P,E>,
-        assignment: AssignmentField<E>
-    ) -> Result<Self> 
+    pub fn try_new<P>(worker: &Worker, src: source::Auxiliary<P,E>, assignment: AssignmentField<E>) -> Result<Self> 
     where
         P: ParameterSource<E>
     {

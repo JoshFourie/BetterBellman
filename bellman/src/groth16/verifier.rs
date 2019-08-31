@@ -2,11 +2,14 @@ use ff::PrimeField;
 use group::{CurveAffine, CurveProjective};
 use pairing::{Engine, PairingCurveAffine};
 
-use super::{PreparedVerifyingKey, Proof, VerifyingKey};
+use super::{PreparedVerifyingKey, Proof, VerifyingKey, Result};
 
 use crate::SynthesisError;
 
-pub fn prepare_verifying_key<E: Engine>(vk: &VerifyingKey<E>) -> PreparedVerifyingKey<E> {
+pub fn prepare_verifying_key<E>(vk: &VerifyingKey<E>) -> PreparedVerifyingKey<E> 
+where
+    E: Engine
+{
     let mut gamma = vk.gamma_g2;
     gamma.negate();
     let mut delta = vk.delta_g2;
@@ -20,11 +23,10 @@ pub fn prepare_verifying_key<E: Engine>(vk: &VerifyingKey<E>) -> PreparedVerifyi
     }
 }
 
-pub fn verify_proof<'a, E: Engine>(
-    pvk: &'a PreparedVerifyingKey<E>,
-    proof: &Proof<E>,
-    public_inputs: &[E::Fr],
-) -> Result<bool, SynthesisError> {
+pub fn verify_proof<E>(pvk: &PreparedVerifyingKey<E>, proof: &Proof<E>, public_inputs: &[E::Fr]) -> Result<bool> 
+where
+    E: Engine
+{
     if (public_inputs.len() + 1) != pvk.ic.len() {
         return Err(SynthesisError::MalformedVerifyingKey);
     }
@@ -42,15 +44,12 @@ pub fn verify_proof<'a, E: Engine>(
     // or equivalently:
     // A * B + inputs * (-gamma) + C * (-delta) = alpha * beta
     // which allows us to do a single final exponentiation.
+    let extension_field: _ = E::miller_loop(&[
+        (&proof.a.prepare(), &proof.b.prepare()),
+        (&acc.into_affine().prepare(), &pvk.neg_gamma_g2),
+        (&proof.c.prepare(), &pvk.neg_delta_g2),
+    ]);
+    let exponentiation: _ = E::final_exponentiation(&extension_field)?;
 
-    Ok(E::final_exponentiation(&E::miller_loop(
-        [
-            (&proof.a.prepare(), &proof.b.prepare()),
-            (&acc.into_affine().prepare(), &pvk.neg_gamma_g2),
-            (&proof.c.prepare(), &pvk.neg_delta_g2),
-        ]
-        .into_iter(),
-    ))
-    .unwrap()
-        == pvk.alpha_g1_beta_g2)
+    Ok(exponentiation == pvk.alpha_g1_beta_g2)
 }

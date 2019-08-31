@@ -10,20 +10,21 @@ pub struct FourierField<'a, E: Engine> {
     a: EvaluationDomain<E,Scalar<E>>,
     b: EvaluationDomain<E,Scalar<E>>,
     c: EvaluationDomain<E,Scalar<E>>,
-    work: &'a Worker
+    worker: &'a Worker
 }
 
 impl<'a,E> FourierField<'a,E> 
 where
     E: Engine
 {
-    pub fn new(eval: &'a mut PolynomialEvaluation<E>, work: &'a Worker) -> Result<Self> {
+    pub fn new(eval: &'a mut PolynomialEvaluation<E>, worker: &'a Worker) -> Result<Self> {
         let a = EvaluationDomain::from_coeffs(eval.a.take()?)?;
         let b = EvaluationDomain::from_coeffs(eval.b.take()?)?;
         let c = EvaluationDomain::from_coeffs(eval.c.take()?)?;
-        Ok(FourierField {a, b, c, work})
+        Ok(FourierField {a, b, c, worker})
     }
 
+    // The efficiency shortcut for building coefficients from the groth16 paper.
     pub fn fft_shortcut(self) ->  Result<AssignmentField<E>> {
         let mut a: _ = self.transform().into_coefficient();
         let new_len = a.len() - 1;
@@ -37,25 +38,28 @@ where
     }   
 
     fn transform(mut self) -> Self {
-        self.a.ifft(self.work);
-        self.a.coset_fft(self.work);
-        self.b.ifft(self.work);
-        self.b.coset_fft(self.work);
-        self.c.ifft(self.work);
-        self.c.coset_fft(self.work);
+        let worker: _ = self.worker;
+
+        self.a.ifft(worker);
+        self.a.coset_fft(worker);
+        self.b.ifft(worker);
+        self.b.coset_fft(worker);
+        self.c.ifft(worker);
+        self.c.coset_fft(worker);
         self
     }
 
     fn into_coefficient(mut self) -> Vec<Scalar<E>> {
-        self.a.mul_assign(self.work, &self.b);
+        let worker: _ = self.worker;
+
+        self.a.mul_assign(worker, &self.b);
         drop(self.b);
 
-        self.a.sub_assign(self.work, &self.c);
+        self.a.sub_assign(worker, &self.c);
         drop(self.c);
 
-        self.a.divide_by_z_on_coset(self.work);
-        self.a.icoset_fft(self.work);
-
+        self.a.divide_by_z_on_coset(worker);
+        self.a.icoset_fft(worker);
         self.a.into_coeffs()
     }
 }
