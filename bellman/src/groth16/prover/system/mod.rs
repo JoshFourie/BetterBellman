@@ -3,7 +3,6 @@ use super::{Future, SynthesisError};
 
 use ff::{Field, PrimeField, ScalarEngine};
 use pairing::Engine;
-use group::CurveAffine;
 
 use super::{ParameterSource, Result};
 
@@ -17,11 +16,7 @@ mod context;
 mod fourier;
 mod source;
 
-<<<<<<< HEAD
 type AssignmentField<E> = Arc<Vec<<<E as ScalarEngine>::Fr as PrimeField>::Repr>>;
-=======
-type ArcAssignment<E> = Arc<Vec<<<E as ScalarEngine>::Fr as PrimeField>::Repr>>;
->>>>>>> cc85ab246c5a9ca813760717d9600ccdf6bb4603
 
 pub struct ProvingSystem<E: Engine> {
     density: QueryDensity,
@@ -30,35 +25,20 @@ pub struct ProvingSystem<E: Engine> {
 }
 
 impl<E: Engine> ProvingSystem<E> {
-    pub fn prepare<T>(self, params: &mut T, r: E::Fr, s: E::Fr) -> Result<builder::Builder<E>>
+    pub fn prepare<T>(mut self, params: &mut T, r: E::Fr, s: E::Fr) -> Result<builder::Builder<E>>
     where
         T: ParameterSource<E>
     {
-        let worker = Worker::new();
-        let vk = params.get_vk(self.assignment.input.len())?;
-        if vk.delta_g1.is_zero() || vk.delta_g2.is_zero() {
-            // If this element is zero, someone is trying to perform a
-            // subversion-CRS attack.
-            return Err(SynthesisError::UnexpectedIdentity);
+        for i in 0..self.assignment.input.len() {
+            self.enforce(
+                || "", 
+                |lc| lc + Variable(Index::Input(i)), 
+                |lc| lc, 
+                |lc| lc
+            );
         }
 
-        builder::Builder::try_new(self, worker, params, vk, r, s)
-    }
-    
-    fn eval<F>(linear: &LinearCombination<E>, mut func: F) -> E::Fr 
-    where
-        F: FnMut(Index) -> E::Fr
-    {
-        linear.0
-            .iter()
-            .fold(E::Fr::zero(), |mut acc, (idx, coeff)| {
-                let mut buf: _ = func(idx.0);
-                if coeff != &E::Fr::one() {
-                    buf.mul_assign(&coeff)
-                }
-                acc.add_assign(&buf);
-                acc 
-            })
+        builder::Builder::try_new(self, params, r, s)
     }
 }
 
@@ -105,7 +85,7 @@ where
         let b = b(LinearCombination::zero());
         let c = c(LinearCombination::zero());
 
-        let eval_a: E::Fr = ProvingSystem::eval(
+        let eval_a: E::Fr = evalaluate_linear_combination(
             &a,
             |index| match index {
                 Index::Input(i) => self.assignment.input[i],
@@ -115,12 +95,13 @@ where
                 }
             }
         );
-        self.eval.a
+        self.eval
+            .a
             .as_mut()
-            .unwrap()
+            .expect("tried calling an operation on Linear Combination A, but found None")
             .push(Scalar(eval_a));
 
-        let eval_b: E::Fr = ProvingSystem::eval(
+        let eval_b: E::Fr = evalaluate_linear_combination(
             &b,
             |index| match index {
                 Index::Input(i) => {
@@ -136,10 +117,10 @@ where
         self.eval
             .b
             .as_mut()
-            .unwrap()
+            .expect("tried calling an operation on Linear Combination B, but found None")
             .push(Scalar(eval_b));
 
-        let eval_c: E::Fr = ProvingSystem::eval(
+        let eval_c: E::Fr = evalaluate_linear_combination(
             &c,
             |index| match index {
                 Index::Input(i) => self.assignment.input[i],
@@ -149,7 +130,7 @@ where
         self.eval
             .c
             .as_mut()
-            .unwrap()
+            .expect("tried calling an operation on Linear Combination C, but found None")
             .push(Scalar(eval_c));
     }
 
@@ -168,6 +149,23 @@ where
     fn get_root(&mut self) -> &mut Self::Root {
         self
     }
+}
+
+fn evalaluate_linear_combination<E,F>(linear: &LinearCombination<E>, mut func: F) -> E::Fr 
+where
+    E: Engine,
+    F: FnMut(Index) -> E::Fr    
+{
+    linear.0
+        .iter()
+        .fold(E::Fr::zero(), |mut acc, (idx, coeff)| {
+            let mut buf: _ = func(idx.0);
+            if coeff != &E::Fr::one() {
+                buf.mul_assign(&coeff)
+            }
+            acc.add_assign(&buf);
+            acc 
+        })
 }
 
 impl<E: Engine> Default for ProvingSystem<E> {

@@ -1,11 +1,7 @@
 use std::sync::Arc;
 use pairing::Engine;
 
-<<<<<<< HEAD
 use super::{ParameterSource, QueryDensity, AssignmentField, Result, source, context};
-=======
-use super::{ParameterSource, QueryDensity, ArcAssignment, Result, source, context};
->>>>>>> cc85ab246c5a9ca813760717d9600ccdf6bb4603
 
 use crate::multiexp::DensityTracker;
 use crate::multicore::Worker;
@@ -54,11 +50,7 @@ where
         })
     }        
 
-<<<<<<< HEAD
     pub fn into_answer(&mut self, worker: &Worker, input: AssignmentField<E>) -> Result<context::Answer<E>> {
-=======
-    pub fn into_answer(&mut self, worker: &Worker, input: ArcAssignment<E>) -> Result<context::Answer<E>> {
->>>>>>> cc85ab246c5a9ca813760717d9600ccdf6bb4603
         context::Answer::try_new(
             worker, 
             self.answer.take()?, 
@@ -66,11 +58,7 @@ where
         )
     }
 
-<<<<<<< HEAD
     pub fn into_auxiliary(&mut self, worker: &Worker, aux: AssignmentField<E>) -> Result<context::Auxiliary<E>> {
-=======
-    pub fn into_auxiliary(&mut self, worker: &Worker, aux: ArcAssignment<E>) -> Result<context::Auxiliary<E>> {
->>>>>>> cc85ab246c5a9ca813760717d9600ccdf6bb4603
         context::Auxiliary::try_new(
             worker,
             self.aux.take()?, 

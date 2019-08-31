@@ -1,5 +1,10 @@
 use std::sync::Arc;
-use super::{ParameterSource, Result, ProvingSystem, Future, source, context, fourier};
+use super::{
+    PolynomialEvaluation, ParameterSource, Result, 
+    ProvingSystem, Future, SynthesisError, 
+    AssignmentField, ProvingAssignment,
+    source, context, fourier, 
+};
 
 use ff::{Field, PrimeField};
 use pairing::Engine;
@@ -13,64 +18,33 @@ pub struct Builder<E: Engine> {
     vk: VerifyingKey<E>, 
     r: E::Fr, 
     s: E::Fr, 
+    h: E::G1,
+    l: E::G1,
     answer: context::Answer<E>,
     aux: context::Auxiliary<E>,
-    h: E::G1,
-    l: E::G1
 }
 
 impl<E> Builder<E>
 where
     E: Engine
 {
-    pub fn try_new<P>(
-        mut prover: ProvingSystem<E>, 
-        worker: Worker, 
-        params: &mut P,
-        vk: VerifyingKey<E>,
-        r: E::Fr, 
-        s: E::Fr
-    ) -> Result<Self> 
+    pub fn try_new<P>(mut prover: ProvingSystem<E>, params: &mut P, r: E::Fr, s: E::Fr) -> Result<Self> 
     where
         P: ParameterSource<E>
     {
-        let h = {
-            let field: _ = fourier::FourierField::new(&mut prover.eval, &worker)?;
-            let linear_coeff: _ = field.fft_shortcut()?;
-            multiexp(&worker, params.get_h(linear_coeff.len())?, FullDensity, linear_coeff)
-        };
+        let worker: _ = Worker::new();
 
-        let input_assignment = Arc::new(
-            prover.assignment
-                .input
-                .into_iter()
-                .map(|s| s.into_repr())
-                .collect::<Vec<_>>(),
-        );
+        let vk: _ = Builder::try_vk(params, prover.assignment.input.len())?;
 
-        let aux_assignment = Arc::new(
-            prover.assignment
-                .aux
-                .into_iter()
-                .map(|s| s.into_repr())
-                .collect::<Vec<_>>(),
-        );
+        let h: _ = Builder::try_h(&mut prover.eval, &worker, params)?;
 
-        let l = multiexp(
-            &worker,
-            params.get_l(aux_assignment.len())?,
-            FullDensity,
-            aux_assignment.clone(),
-        );
+        let (input, aux): _ = Builder::into_primefield(prover.assignment);
 
-        let mut src: _ = source::Source::try_new(
-            prover.density, 
-            input_assignment.len(), 
-            params
-        )?;
+        let l = Builder::try_l(&aux, &worker, params)?;
 
-        let answer: _ = src.into_answer(&worker, input_assignment)?;
-        let aux: _ = src.into_auxiliary(&worker, aux_assignment)?;
+        let mut src: _ = source::Source::try_new(prover.density, input.len(), params)?;
+        let answer: _ = src.into_answer(&worker, input)?;
+        let aux: _ = src.into_auxiliary(&worker, aux)?;
 
         Ok(Builder {
             vk,
@@ -135,4 +109,56 @@ where
 
         Ok(gc)
     } 
+
+    fn try_h<Q>(eval: &mut PolynomialEvaluation<E>, worker: &Worker, params: &mut Q) -> Result<impl Future<Item=E::G1, Error=SynthesisError>>
+    where
+        Q: ParameterSource<E>
+    {
+        let field: _ = fourier::FourierField::new(eval, worker)?;
+        let linear_coeff: _ = field.fft_shortcut()?;
+        Ok(multiexp(&worker, params.get_h(linear_coeff.len())?, FullDensity, linear_coeff))
+    }
+
+    fn try_l<R>(aux: &AssignmentField<E>, worker: &Worker, params: &mut R) -> Result<impl Future<Item=E::G1, Error=SynthesisError>> 
+    where
+        R: ParameterSource<E>
+    {
+        let l: _ = multiexp(
+            &worker,
+            params.get_l(aux.len())?,
+            FullDensity,
+            aux.clone(),
+        );
+        Ok(l)
+    }
+
+    fn try_vk<S>(params: &mut S, input_len: usize) -> Result<VerifyingKey<E>> 
+    where
+        S: ParameterSource<E>
+    {
+        let vk = params.get_vk(input_len)?;
+        if vk.delta_g1.is_zero() || vk.delta_g2.is_zero() {
+            // If this element is zero, someone is trying to perform a
+            // subversion-CRS attack.
+            return Err(SynthesisError::UnexpectedIdentity);
+        } else { Ok(vk) }
+    }
+
+    fn into_primefield(assignment: ProvingAssignment<E>) -> (AssignmentField<E>, AssignmentField<E>) {
+        let input = Arc::new(
+            assignment.input
+                .into_iter()
+                .map(|s| s.into_repr())
+                .collect::<Vec<_>>(),
+        );
+
+        let aux = Arc::new(
+            assignment.aux
+                .into_iter()
+                .map(|s| s.into_repr())
+                .collect::<Vec<_>>(),
+        );
+
+        (input, aux)
+    }
 }
