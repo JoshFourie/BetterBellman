@@ -16,24 +16,30 @@ extern crate rand;
 pub mod domain;
 pub mod gadgets;
 pub mod error;
+pub mod linear;
 #[cfg(feature = "groth16")] pub mod groth16;
 pub mod multicore;
 mod multiexp;
 
-use ff::{Field, ScalarEngine};
+use ff::{ScalarEngine};
 
 use std::marker::PhantomData;
-use std::ops::{Add, Sub};
 
 pub use error::{Result, SynthesisError};
+pub use linear_combination::LinearCombination;
 
 /// Computations are expressed in terms of arithmetic circuits, in particular
 /// rank-1 quadratic constraint systems. The `Circuit` trait represents a
 /// circuit that can be synthesized. The `synthesize` method is called during
 /// CRS generation and during proving.
-pub trait Circuit<E: ScalarEngine> {
+pub trait Circuit<E> 
+where
+    E: ScalarEngine
+{
     /// Synthesize the circuit into a rank-1 quadratic constraint system
-    fn synthesize<CS: ConstraintSystem<E>>(self, cs: &mut CS) -> Result<()>;
+    fn synthesize<CS>(self, cs: &mut CS) -> Result<()>
+    where
+        CS: ConstraintSystem<E>;
 }
 
 /// Represents a variable in our constraint system.
@@ -60,111 +66,6 @@ impl Variable {
 pub enum Index {
     Input(usize),
     Aux(usize),
-}
-
-/// This represents a linear combination of some variables, with coefficients
-/// in the scalar field of a pairing-friendly elliptic curve group.
-#[derive(Clone)]
-pub struct LinearCombination<E: ScalarEngine>(Vec<(Variable, E::Fr)>);
-
-impl<E: ScalarEngine> AsRef<[(Variable, E::Fr)]> for LinearCombination<E> {
-    fn as_ref(&self) -> &[(Variable, E::Fr)] {
-        &self.0
-    }
-}
-
-impl<E: ScalarEngine> LinearCombination<E> {
-    pub fn zero() -> LinearCombination<E> {
-        LinearCombination(vec![])
-    }
-}
-
-impl<E: ScalarEngine> Add<(E::Fr, Variable)> for LinearCombination<E> {
-    type Output = LinearCombination<E>;
-
-    fn add(mut self, (coeff, var): (E::Fr, Variable)) -> LinearCombination<E> {
-        self.0.push((var, coeff));
-
-        self
-    }
-}
-
-impl<E: ScalarEngine> Sub<(E::Fr, Variable)> for LinearCombination<E> {
-    type Output = LinearCombination<E>;
-
-    fn sub(self, (mut coeff, var): (E::Fr, Variable)) -> LinearCombination<E> {
-        coeff.negate();
-
-        self + (coeff, var)
-    }
-}
-
-impl<E: ScalarEngine> Add<Variable> for LinearCombination<E> {
-    type Output = LinearCombination<E>;
-
-    fn add(self, other: Variable) -> LinearCombination<E> {
-        self + (E::Fr::one(), other)
-    }
-}
-
-impl<E: ScalarEngine> Sub<Variable> for LinearCombination<E> {
-    type Output = LinearCombination<E>;
-
-    fn sub(self, other: Variable) -> LinearCombination<E> {
-        self - (E::Fr::one(), other)
-    }
-}
-
-impl<'a, E: ScalarEngine> Add<&'a LinearCombination<E>> for LinearCombination<E> {
-    type Output = LinearCombination<E>;
-
-    fn add(mut self, other: &'a LinearCombination<E>) -> LinearCombination<E> {
-        for s in &other.0 {
-            self = self + (s.1, s.0);
-        }
-
-        self
-    }
-}
-
-impl<'a, E: ScalarEngine> Sub<&'a LinearCombination<E>> for LinearCombination<E> {
-    type Output = LinearCombination<E>;
-
-    fn sub(mut self, other: &'a LinearCombination<E>) -> LinearCombination<E> {
-        for s in &other.0 {
-            self = self - (s.1, s.0);
-        }
-
-        self
-    }
-}
-
-impl<'a, E: ScalarEngine> Add<(E::Fr, &'a LinearCombination<E>)> for LinearCombination<E> {
-    type Output = LinearCombination<E>;
-
-    fn add(mut self, (coeff, other): (E::Fr, &'a LinearCombination<E>)) -> LinearCombination<E> {
-        for s in &other.0 {
-            let mut tmp = s.1;
-            tmp.mul_assign(&coeff);
-            self = self + (tmp, s.0);
-        }
-
-        self
-    }
-}
-
-impl<'a, E: ScalarEngine> Sub<(E::Fr, &'a LinearCombination<E>)> for LinearCombination<E> {
-    type Output = LinearCombination<E>;
-
-    fn sub(mut self, (coeff, other): (E::Fr, &'a LinearCombination<E>)) -> LinearCombination<E> {
-        for s in &other.0 {
-            let mut tmp = s.1;
-            tmp.mul_assign(&coeff);
-            self = self - (tmp, s.0);
-        }
-
-        self
-    }
 }
 
 /// Represents a constraint system which can have new variables
