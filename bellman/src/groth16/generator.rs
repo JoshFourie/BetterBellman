@@ -69,7 +69,7 @@ impl<E: Engine> ConstraintSystem<E> for KeypairAssembly<E> {
         self.bt_aux.push(vec![]);
         self.ct_aux.push(vec![]);
 
-        Ok(Variable(Index::Aux(index)))
+        Ok(Variable::new_unchecked(Index::Aux(index)))
     }
 
     fn alloc_input<F, A, AR>(&mut self, _: A, _: F) -> Result<Variable, SynthesisError>
@@ -88,7 +88,7 @@ impl<E: Engine> ConstraintSystem<E> for KeypairAssembly<E> {
         self.bt_inputs.push(vec![]);
         self.ct_inputs.push(vec![]);
 
-        Ok(Variable(Index::Input(index)))
+        Ok(Variable::new_unchecked(Index::Input(index)))
     }
 
     fn enforce<A, AR, LA, LB, LC>(&mut self, _: A, a: LA, b: LB, c: LC)
@@ -106,9 +106,9 @@ impl<E: Engine> ConstraintSystem<E> for KeypairAssembly<E> {
             this_constraint: usize,
         ) {
             for (index, coeff) in l.0 {
-                match index {
-                    Variable(Index::Input(id)) => inputs[id].push((coeff, this_constraint)),
-                    Variable(Index::Aux(id)) => aux[id].push((coeff, this_constraint)),
+                match index.get_unchecked() {
+                    Index::Input(id) => inputs[id].push((coeff, this_constraint)),
+                    Index::Aux(id) => aux[id].push((coeff, this_constraint)),
                 }
             }
         }
@@ -188,7 +188,12 @@ where
     // Input constraints to ensure full density of IC query
     // x * 0 = 0
     for i in 0..assembly.num_inputs {
-        assembly.enforce(|| "", |lc| lc + Variable(Index::Input(i)), |lc| lc, |lc| lc);
+        assembly.enforce(
+            || "", 
+            |lc| lc + Variable::new_unchecked(Index::Input(i)), 
+            |lc| lc, 
+            |lc| lc
+        );
     }
 
     // Create bases for blind evaluation of polynomials at tau

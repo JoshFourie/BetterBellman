@@ -32,7 +32,7 @@ impl<E: Engine> ProvingSystem<E> {
         for i in 0..self.assignment.input.len() {
             self.enforce(
                 || "", 
-                |lc| lc + Variable(Index::Input(i)), 
+                |lc| lc + Variable::new_unchecked(Index::Input(i)), 
                 |lc| lc, 
                 |lc| lc
             );
@@ -58,7 +58,7 @@ where
         self.density.a_aux.add_element();
         self.density.b_aux.add_element();
 
-        Ok(Variable(Index::Aux(self.assignment.aux.len() - 1)))
+        Ok(Variable::new_unchecked(Index::Aux(self.assignment.aux.len() - 1)))
     }
 
     fn alloc_input<F, A, AR>(&mut self, _: A, f: F) -> Result<Variable>
@@ -70,7 +70,8 @@ where
         self.assignment.input.push(f()?);
         self.density.b_input.add_element();
 
-        Ok(Variable(Index::Input(self.assignment.input.len() - 1)))
+        let index: _ = Index::Input(self.assignment.input.len() - 1);
+        Ok(Variable::new_unchecked(index))
     }
 
     fn enforce<A, AR, LA, LB, LC>(&mut self, _: A, a: LA, b: LB, c: LC)
@@ -159,7 +160,7 @@ where
     linear.0
         .iter()
         .fold(E::Fr::zero(), |mut acc, (idx, coeff)| {
-            let mut buf: _ = func(idx.0);
+            let mut buf: _ = func(idx.get_unchecked());
             if coeff != &E::Fr::one() {
                 buf.mul_assign(&coeff)
             }

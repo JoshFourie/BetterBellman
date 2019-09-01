@@ -17,6 +17,7 @@ pub mod domain;
 pub mod gadgets;
 pub mod error;
 pub mod linear;
+pub mod namespace;
 #[cfg(feature = "groth16")] pub mod groth16;
 pub mod multicore;
 mod multiexp;
@@ -27,6 +28,7 @@ use std::marker::PhantomData;
 
 pub use error::{Result, SynthesisError};
 pub use linear::{Variable, LinearCombination, Index};
+pub use namespace::Namespace;
 
 /// Computations are expressed in terms of arithmetic circuits, in particular
 /// rank-1 quadratic constraint systems. The `Circuit` trait represents a
@@ -44,7 +46,10 @@ where
 
 /// Represents a constraint system which can have new variables
 /// allocated and constrains between them formed.
-pub trait ConstraintSystem<E: ScalarEngine>: Sized {
+pub trait ConstraintSystem<E>: Sized 
+where
+    E: ScalarEngine
+{
     /// Represents the type of the "root" of this constraint system
     /// so that nested namespaces can minimize indirection.
     type Root: ConstraintSystem<E>;
@@ -105,76 +110,10 @@ pub trait ConstraintSystem<E: ScalarEngine>: Sized {
     {
         self.get_root().push_namespace(name_fn);
 
-        Namespace(self.get_root(), PhantomData)
+        Namespace::new(self.get_root())
     }
 }
 
-/// This is a "namespaced" constraint system which borrows a constraint system (pushing
-/// a namespace context) and, when dropped, pops out of the namespace context.
-pub struct Namespace<'a, E: ScalarEngine, CS: ConstraintSystem<E>>(&'a mut CS, PhantomData<E>);
-
-impl<'cs, E: ScalarEngine, CS: ConstraintSystem<E>> ConstraintSystem<E> for Namespace<'cs, E, CS> {
-    type Root = CS::Root;
-
-    fn one() -> Variable {
-        CS::one()
-    }
-
-    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable>
-    where
-        F: FnOnce() -> Result<E::Fr>,
-        A: FnOnce() -> AR,
-        AR: Into<String>,
-    {
-        self.0.alloc(annotation, f)
-    }
-
-    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable>
-    where
-        F: FnOnce() -> Result<E::Fr>,
-        A: FnOnce() -> AR,
-        AR: Into<String>,
-    {
-        self.0.alloc_input(annotation, f)
-    }
-
-    fn enforce<A, AR, LA, LB, LC>(&mut self, annotation: A, a: LA, b: LB, c: LC)
-    where
-        A: FnOnce() -> AR,
-        AR: Into<String>,
-        LA: FnOnce(LinearCombination<E>) -> LinearCombination<E>,
-        LB: FnOnce(LinearCombination<E>) -> LinearCombination<E>,
-        LC: FnOnce(LinearCombination<E>) -> LinearCombination<E>,
-    {
-        self.0.enforce(annotation, a, b, c)
-    }
-
-    // Downstream users who use `namespace` will never interact with these
-    // functions and they will never be invoked because the namespace is
-    // never a root constraint system.
-
-    fn push_namespace<NR, N>(&mut self, _: N)
-    where
-        NR: Into<String>,
-        N: FnOnce() -> NR,
-    {
-        panic!("only the root's push_namespace should be called");
-    }
-
-    fn pop_namespace(&mut self) {
-        panic!("only the root's pop_namespace should be called");
-    }
-
-    fn get_root(&mut self) -> &mut Self::Root {
-        self.0.get_root()
-    }
-}
-
-impl<'a, E: ScalarEngine, CS: ConstraintSystem<E>> Drop for Namespace<'a, E, CS> {
-    fn drop(&mut self) {
-        self.get_root().pop_namespace()
-    }
-}
 
 /// Convenience implementation of ConstraintSystem<E> for mutable references to
 /// constraint systems.
