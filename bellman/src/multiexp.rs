@@ -10,7 +10,11 @@ use std::sync::Arc;
 use super::SynthesisError;
 
 /// An object that builds a source of bases.
-pub trait SourceBuilder<G: CurveAffine>: Send + Sync + 'static + Clone {
+pub trait SourceBuilder<G: CurveAffine>: Send 
+    + Sync 
+    + 'static 
+    + Clone 
+{
     type Source: Source<G>;
 
     fn new(self) -> Self::Source;
@@ -19,10 +23,7 @@ pub trait SourceBuilder<G: CurveAffine>: Send + Sync + 'static + Clone {
 /// A source of bases, like an iterator.
 pub trait Source<G: CurveAffine> {
     /// Parses the element from the source. Fails if the point is at infinity.
-    fn add_assign_mixed(
-        &mut self,
-        to: &mut <G as CurveAffine>::Projective,
-    ) -> Result<(), SynthesisError>;
+    fn add_assign_mixed(&mut self, to: &mut G::Projective) -> Result<(), SynthesisError>;
 
     /// Skips `amt` elements from the source, avoiding deserialization.
     fn skip(&mut self, amt: usize) -> Result<(), SynthesisError>;

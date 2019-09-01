@@ -15,19 +15,17 @@ extern crate rand;
 
 pub mod domain;
 pub mod gadgets;
-#[cfg(feature = "groth16")]
-pub mod groth16;
+pub mod error;
+#[cfg(feature = "groth16")] pub mod groth16;
 pub mod multicore;
 mod multiexp;
 
 use ff::{Field, ScalarEngine};
 
-use std::error::Error;
-use std::fmt;
-use std::io;
-use std::option;
 use std::marker::PhantomData;
 use std::ops::{Add, Sub};
+
+pub use error::{Result, SynthesisError};
 
 /// Computations are expressed in terms of arithmetic circuits, in particular
 /// rank-1 quadratic constraint systems. The `Circuit` trait represents a
@@ -35,7 +33,7 @@ use std::ops::{Add, Sub};
 /// CRS generation and during proving.
 pub trait Circuit<E: ScalarEngine> {
     /// Synthesize the circuit into a rank-1 quadratic constraint system
-    fn synthesize<CS: ConstraintSystem<E>>(self, cs: &mut CS) -> Result<(), SynthesisError>;
+    fn synthesize<CS: ConstraintSystem<E>>(self, cs: &mut CS) -> Result<()>;
 }
 
 /// Represents a variable in our constraint system.
@@ -169,71 +167,6 @@ impl<'a, E: ScalarEngine> Sub<(E::Fr, &'a LinearCombination<E>)> for LinearCombi
     }
 }
 
-/// This is an error that could occur during circuit synthesis contexts,
-/// such as CRS generation, proving or verification.
-#[derive(Debug)]
-pub enum SynthesisError {
-    /// During synthesis, we lacked knowledge of a variable assignment.
-    AssignmentMissing,
-    /// During synthesis, we divided by zero.
-    DivisionByZero,
-    /// During synthesis, we constructed an unsatisfiable constraint system.
-    Unsatisfiable,
-    /// During synthesis, our polynomials ended up being too high of degree
-    PolynomialDegreeTooLarge,
-    /// During proof generation, we encountered an identity in the CRS
-    UnexpectedIdentity,
-    /// During proof generation, we encountered an I/O error with the CRS
-    IoError(io::Error),
-    /// During verification, our verifying key was malformed.
-    MalformedVerifyingKey,
-    /// During CRS generation, we observed an unconstrained auxiliary variable
-    UnconstrainedVariable,
-    /// During synthesis, we called an operation on a None.
-    Null
-}
-
-impl From<option::NoneError> for SynthesisError {
-    fn from(_: option::NoneError) -> Self {
-        SynthesisError::Null
-    }
-}
-
-impl From<io::Error> for SynthesisError {
-    fn from(e: io::Error) -> SynthesisError {
-        SynthesisError::IoError(e)
-    }
-}
-
-impl Error for SynthesisError {
-    fn description(&self) -> &str {
-        match *self {
-            SynthesisError::AssignmentMissing => {
-                "an assignment for a variable could not be computed"
-            }
-            SynthesisError::DivisionByZero => "division by zero",
-            SynthesisError::Unsatisfiable => "unsatisfiable constraint system",
-            SynthesisError::PolynomialDegreeTooLarge => "polynomial degree is too large",
-            SynthesisError::UnexpectedIdentity => "encountered an identity element in the CRS",
-            SynthesisError::IoError(_) => "encountered an I/O error",
-            SynthesisError::MalformedVerifyingKey => "malformed verifying key",
-            SynthesisError::UnconstrainedVariable => "auxiliary variable was unconstrained",
-            SynthesisError::Null => "encountered an operation on a None"
-        }
-    }
-}
-
-impl fmt::Display for SynthesisError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        if let &SynthesisError::IoError(ref e) = self {
-            write!(f, "I/O error: ")?;
-            e.fmt(f)
-        } else {
-            write!(f, "{}", self.description())
-        }
-    }
-}
-
 /// Represents a constraint system which can have new variables
 /// allocated and constrains between them formed.
 pub trait ConstraintSystem<E: ScalarEngine>: Sized {
@@ -250,17 +183,17 @@ pub trait ConstraintSystem<E: ScalarEngine>: Sized {
     /// determine the assignment of the variable. The given `annotation` function is invoked
     /// in testing contexts in order to derive a unique name for this variable in the current
     /// namespace.
-    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable, SynthesisError>
+    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable>
     where
-        F: FnOnce() -> Result<E::Fr, SynthesisError>,
+        F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
         AR: Into<String>;
 
     /// Allocate a public variable in the constraint system. The provided function is used to
     /// determine the assignment of the variable.
-    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable, SynthesisError>
+    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable>
     where
-        F: FnOnce() -> Result<E::Fr, SynthesisError>,
+        F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
         AR: Into<String>;
 
@@ -312,18 +245,18 @@ impl<'cs, E: ScalarEngine, CS: ConstraintSystem<E>> ConstraintSystem<E> for Name
         CS::one()
     }
 
-    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable, SynthesisError>
+    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable>
     where
-        F: FnOnce() -> Result<E::Fr, SynthesisError>,
+        F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
         AR: Into<String>,
     {
         self.0.alloc(annotation, f)
     }
 
-    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable, SynthesisError>
+    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable>
     where
-        F: FnOnce() -> Result<E::Fr, SynthesisError>,
+        F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
         AR: Into<String>,
     {
@@ -377,18 +310,18 @@ impl<'cs, E: ScalarEngine, CS: ConstraintSystem<E>> ConstraintSystem<E> for &'cs
         CS::one()
     }
 
-    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable, SynthesisError>
+    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable>
     where
-        F: FnOnce() -> Result<E::Fr, SynthesisError>,
+        F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
         AR: Into<String>,
     {
         (**self).alloc(annotation, f)
     }
 
-    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable, SynthesisError>
+    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable>
     where
-        F: FnOnce() -> Result<E::Fr, SynthesisError>,
+        F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
         AR: Into<String>,
     {

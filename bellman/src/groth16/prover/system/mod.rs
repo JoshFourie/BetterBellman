@@ -178,6 +178,7 @@ impl<E: Engine> Default for ProvingSystem<E> {
     }
 }
 
+// todo: resolve naming collision with object in multiexp.
 struct QueryDensity {
     a_aux: DensityTracker,
     b_input: DensityTracker,
