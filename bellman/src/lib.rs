@@ -26,7 +26,7 @@ use ff::{ScalarEngine};
 use std::marker::PhantomData;
 
 pub use error::{Result, SynthesisError};
-pub use linear_combination::LinearCombination;
+pub use linear::{Variable, LinearCombination, Index};
 
 /// Computations are expressed in terms of arithmetic circuits, in particular
 /// rank-1 quadratic constraint systems. The `Circuit` trait represents a
@@ -40,32 +40,6 @@ where
     fn synthesize<CS>(self, cs: &mut CS) -> Result<()>
     where
         CS: ConstraintSystem<E>;
-}
-
-/// Represents a variable in our constraint system.
-#[derive(Copy, Clone, Debug)]
-pub struct Variable(Index);
-
-impl Variable {
-    /// This constructs a variable with an arbitrary index.
-    /// Circuit implementations are not recommended to use this.
-    pub fn new_unchecked(idx: Index) -> Variable {
-        Variable(idx)
-    }
-
-    /// This returns the index underlying the variable.
-    /// Circuit implementations are not recommended to use this.
-    pub fn get_unchecked(&self) -> Index {
-        self.0
-    }
-}
-
-/// Represents the index of either an input variable or
-/// auxiliary variable.
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub enum Index {
-    Input(usize),
-    Aux(usize),
 }
 
 /// Represents a constraint system which can have new variables

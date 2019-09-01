@@ -1,6 +1,31 @@
 use std::ops::{Add, Sub};
 use ff::{ScalarEngine, Field};
-use super::Variable;
+
+/// Represents a variable in our constraint system.
+#[derive(Copy, Clone, Debug)]
+pub struct Variable(Index);
+
+impl Variable {
+    /// This constructs a variable with an arbitrary index.
+    /// Circuit implementations are not recommended to use this.
+    pub fn new_unchecked(idx: Index) -> Variable {
+        Variable(idx)
+    }
+
+    /// This returns the index underlying the variable.
+    /// Circuit implementations are not recommended to use this.
+    pub fn get_unchecked(&self) -> Index {
+        self.0
+    }
+}
+
+/// Represents the index of either an input variable or
+/// auxiliary variable.
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum Index {
+    Input(usize),
+    Aux(usize),
+}
 
 /// This represents a linear combination of some variables, with coefficients
 /// in the scalar field of a pairing-friendly elliptic curve group.
