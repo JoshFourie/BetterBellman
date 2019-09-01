@@ -1,6 +1,5 @@
 use super::boolean::Boolean;
 use super::num::Num;
-use super::Assignment;
 use crate::{ConstraintSystem, SynthesisError};
 use ff::{Field, PrimeField};
 use pairing::Engine;
@@ -21,7 +20,10 @@ where
             coeff.double();
         }
 
-        let input = cs.alloc_input(|| format!("input {}", i), || Ok(*num.get_value().get()?))?;
+        let input = cs.alloc_input(
+            || format!("input {}", i), 
+            || Ok(num.get_value().ok_or(SynthesisError::AssignmentMissing)?)
+        )?;
 
         // num * 1 = input
         cs.enforce(

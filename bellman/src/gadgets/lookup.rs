@@ -62,10 +62,16 @@ where
     };
 
     // Allocate the x-coordinate resulting from the lookup
-    let res_x = AllocatedNum::alloc(cs.namespace(|| "x"), || Ok(coords[*i.get()?].0))?;
+    let res_x = AllocatedNum::alloc(
+        cs.namespace(|| "x"), 
+        || Ok(coords[i.ok_or(SynthesisError::AssignmentMissing)?].0)
+    )?;
 
     // Allocate the y-coordinate resulting from the lookup
-    let res_y = AllocatedNum::alloc(cs.namespace(|| "y"), || Ok(coords[*i.get()?].1))?;
+    let res_y = AllocatedNum::alloc(
+        cs.namespace(|| "y"), 
+        || Ok(coords[i.ok_or(SynthesisError::AssignmentMissing)?].1)
+    )?;
 
     // Compute the coefficients for the lookup constraints
     let mut x_coeffs = [E::Fr::zero(); 8];
@@ -147,8 +153,10 @@ where
     // Allocate the y-coordinate resulting from the lookup
     // and conditional negation
     let y = AllocatedNum::alloc(cs.namespace(|| "y"), || {
-        let mut tmp = coords[*i.get()?].1;
-        if *bits[2].get_value().get()? {
+        let mut tmp = coords[i.ok_or(SynthesisError::AssignmentMissing)?].1;
+        if bits[2].get_value()
+            .ok_or(SynthesisError::AssignmentMissing)? 
+        {
             tmp.negate();
         }
         Ok(tmp)

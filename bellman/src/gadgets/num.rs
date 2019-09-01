@@ -3,8 +3,6 @@ use pairing::Engine;
 
 use crate::{ConstraintSystem, LinearCombination, SynthesisError, Variable};
 
-use super::Assignment;
-
 use super::boolean::{self, AllocatedBit, Boolean};
 
 pub struct AllocatedNum<E: Engine> {
@@ -49,7 +47,10 @@ impl<E: Engine> AllocatedNum<E> {
     where
         CS: ConstraintSystem<E>,
     {
-        let input = cs.alloc_input(|| "input variable", || Ok(*self.value.get()?))?;
+        let input = cs.alloc_input(
+            || "input variable", 
+            || Ok(self.value.ok_or(SynthesisError::AssignmentMissing)?)
+        )?;
 
         cs.enforce(
             || "enforce input is correct",
@@ -220,8 +221,8 @@ impl<E: Engine> AllocatedNum<E> {
         let var = cs.alloc(
             || "product num",
             || {
-                let mut tmp = *self.value.get()?;
-                tmp.mul_assign(other.value.get()?);
+                let mut tmp = self.value.ok_or(SynthesisError::AssignmentMissing)?;
+                tmp.mul_assign(&other.value.ok_or(SynthesisError::AssignmentMissing)?);
 
                 value = Some(tmp);
 
@@ -252,7 +253,7 @@ impl<E: Engine> AllocatedNum<E> {
         let var = cs.alloc(
             || "squared num",
             || {
-                let mut tmp = *self.value.get()?;
+                let mut tmp = self.value.ok_or(SynthesisError::AssignmentMissing)?;
                 tmp.square();
 
                 value = Some(tmp);
@@ -282,7 +283,7 @@ impl<E: Engine> AllocatedNum<E> {
         let inv = cs.alloc(
             || "ephemeral inverse",
             || {
-                let tmp = *self.value.get()?;
+                let tmp = self.value.ok_or(SynthesisError::AssignmentMissing)?;
 
                 if tmp.is_zero() {
                     Err(SynthesisError::DivisionByZero)
@@ -318,10 +319,10 @@ impl<E: Engine> AllocatedNum<E> {
         CS: ConstraintSystem<E>,
     {
         let c = Self::alloc(cs.namespace(|| "conditional reversal result 1"), || {
-            if *condition.get_value().get()? {
-                Ok(*b.value.get()?)
+            if condition.get_value().ok_or(SynthesisError::AssignmentMissing)? {
+                Ok(b.value.ok_or(SynthesisError::AssignmentMissing)?)
             } else {
-                Ok(*a.value.get()?)
+                Ok(a.value.ok_or(SynthesisError::AssignmentMissing)?)
             }
         })?;
 
@@ -333,10 +334,10 @@ impl<E: Engine> AllocatedNum<E> {
         );
 
         let d = Self::alloc(cs.namespace(|| "conditional reversal result 2"), || {
-            if *condition.get_value().get()? {
-                Ok(*a.value.get()?)
+            if condition.get_value().ok_or(SynthesisError::AssignmentMissing)? {
+                Ok(a.value.ok_or(SynthesisError::AssignmentMissing)?)
             } else {
-                Ok(*b.value.get()?)
+                Ok(b.value.ok_or(SynthesisError::AssignmentMissing)?)
             }
         })?;
 

@@ -3,8 +3,6 @@ use pairing::Engine;
 
 use crate::{ConstraintSystem, LinearCombination, SynthesisError, Variable};
 
-use super::Assignment;
-
 /// Represents a variable in the constraint system which is guaranteed
 /// to be either zero or one.
 #[derive(Clone)]
@@ -37,7 +35,7 @@ impl AllocatedBit {
         let var = cs.alloc(
             || "boolean",
             || {
-                if *value.get()? {
+                if value.ok_or(SynthesisError::AssignmentMissing)? {
                     Ok(E::Fr::one())
                 } else {
                     Ok(E::Fr::zero())
@@ -74,7 +72,7 @@ impl AllocatedBit {
         let var = cs.alloc(
             || "boolean",
             || {
-                if *value.get()? {
+                if value.ok_or(SynthesisError::AssignmentMissing)? {
                     Ok(E::Fr::one())
                 } else {
                     Ok(E::Fr::zero())
@@ -109,7 +107,10 @@ impl AllocatedBit {
         let result_var = cs.alloc(
             || "xor result",
             || {
-                if *a.value.get()? ^ *b.value.get()? {
+                let a_val: _ = a.value.ok_or(SynthesisError::AssignmentMissing)?;
+                let b_val: _ = b.value.ok_or(SynthesisError::AssignmentMissing)?;
+
+                if a_val ^ b_val {
                     result_value = Some(true);
 
                     Ok(E::Fr::one())
@@ -161,7 +162,10 @@ impl AllocatedBit {
         let result_var = cs.alloc(
             || "and result",
             || {
-                if *a.value.get()? & *b.value.get()? {
+                let a_val: _ = a.value.ok_or(SynthesisError::AssignmentMissing)?;
+                let b_val: _ = b.value.ok_or(SynthesisError::AssignmentMissing)?;
+
+                if a_val & b_val {
                     result_value = Some(true);
 
                     Ok(E::Fr::one())
@@ -199,7 +203,10 @@ impl AllocatedBit {
         let result_var = cs.alloc(
             || "and not result",
             || {
-                if *a.value.get()? & !*b.value.get()? {
+                let a_val: _ = a.value.ok_or(SynthesisError::AssignmentMissing)?;
+                let b_val: _ = b.value.ok_or(SynthesisError::AssignmentMissing)?;
+
+                if a_val & !b_val {
                     result_value = Some(true);
 
                     Ok(E::Fr::one())
@@ -237,7 +244,10 @@ impl AllocatedBit {
         let result_var = cs.alloc(
             || "nor result",
             || {
-                if !*a.value.get()? & !*b.value.get()? {
+                let a_val: _ = a.value.ok_or(SynthesisError::AssignmentMissing)?;
+                let b_val: _ = b.value.ok_or(SynthesisError::AssignmentMissing)?;
+
+                if !a_val & !b_val {
                     result_value = Some(true);
 
                     Ok(E::Fr::one())
@@ -586,9 +596,13 @@ impl Boolean {
         let ch = cs.alloc(
             || "ch",
             || {
-                ch_value
-                    .get()
-                    .map(|v| if *v { E::Fr::one() } else { E::Fr::zero() })
+                ch_value.map(|v| {
+                    if v { 
+                        E::Fr::one() 
+                    } else { 
+                        E::Fr::zero() 
+                    }
+                }).ok_or(SynthesisError::AssignmentMissing)
             },
         )?;
 
@@ -689,10 +703,14 @@ impl Boolean {
         let maj = cs.alloc(
             || "maj",
             || {
-                maj_value
-                    .get()
-                    .map(|v| if *v { E::Fr::one() } else { E::Fr::zero() })
-            },
+                maj_value.map(|v| {
+                    if v { 
+                        E::Fr::one() 
+                    } else { 
+                        E::Fr::zero() 
+                    }
+                }).ok_or(SynthesisError::AssignmentMissing)
+            }
         )?;
 
         // ¬(¬a ∧ ¬b) ∧ ¬(¬a ∧ ¬c) ∧ ¬(¬b ∧ ¬c)
