@@ -13,9 +13,8 @@
 use ff::{Field, PrimeField, ScalarEngine};
 use group::CurveProjective;
 
-use super::SynthesisError;
-
-use super::multicore::Worker;
+use crate::error::{SynthesisError, Result};
+use crate::multicore::Worker;
 
 pub struct EvaluationDomain<E: ScalarEngine, G: Group<E>> {
     coeffs: Vec<G>,
@@ -26,7 +25,11 @@ pub struct EvaluationDomain<E: ScalarEngine, G: Group<E>> {
     minv: E::Fr,
 }
 
-impl<E: ScalarEngine, G: Group<E>> EvaluationDomain<E, G> {
+impl<E,G> EvaluationDomain<E,G> 
+where
+    E: ScalarEngine,
+    G: Group<E>
+{
     pub fn as_ref(&self) -> &[G] {
         &self.coeffs
     }
@@ -39,41 +42,55 @@ impl<E: ScalarEngine, G: Group<E>> EvaluationDomain<E, G> {
         self.coeffs
     }
 
-    pub fn from_coeffs(mut coeffs: Vec<G>) -> Result<EvaluationDomain<E, G>, SynthesisError> {
-        // Compute the size of our evaluation domain
-        let mut m = 1;
-        let mut exp = 0;
-        while m < coeffs.len() {
-            m *= 2;
-            exp += 1;
+    pub fn from_coeffs(mut coeffs: Vec<G>) -> Result<Self> {
+        let (m,exp): (usize,u32) = Self::size_of(&coeffs)?;
+        let omega: E::Fr = Self::square_primitive_root_of_unity_to_degree(exp);
 
-            // The pairing-friendly curve may not be able to support
-            // large enough (radix2) evaluation domains.
-            if exp >= E::Fr::S {
-                return Err(SynthesisError::PolynomialDegreeTooLarge);
-            }
-        }
-
-        // Compute omega, the 2^exp primitive root of unity
-        let mut omega = E::Fr::root_of_unity();
-        for _ in exp..E::Fr::S {
-            omega.square();
-        }
+        let omegainv: _ = omega.inverse().expect("could not compute the inverse of omega.");
+        let geninv: _ = E::Fr::multiplicative_generator()
+            .inverse()
+            .expect("could not compute the inverse of the multiplictive generator for the evaluation domain");
+        let minv: _ = E::Fr::from_str(&format!("{}",m))
+            .expect("could not serialize 'm' as E::Fr")
+            .inverse()
+            .expect("could not compute inverse of 'm'.");
 
         // Extend the coeffs vector with zeroes if necessary
         coeffs.resize(m, G::group_zero());
 
-        Ok(EvaluationDomain {
-            coeffs: coeffs,
-            exp: exp,
-            omega: omega,
-            omegainv: omega.inverse().unwrap(),
-            geninv: E::Fr::multiplicative_generator().inverse().unwrap(),
-            minv: E::Fr::from_str(&format!("{}", m))
-                .unwrap()
-                .inverse()
-                .unwrap(),
-        })
+        let domain: _ = EvaluationDomain {
+            coeffs,
+            exp,
+            omega,
+            omegainv,
+            geninv,
+            minv
+        };
+        Ok(domain)
+    }
+
+    // Compute omega, the 2^exp primitive root of unity
+    fn square_primitive_root_of_unity_to_degree(degree: u32) -> E::Fr {
+        let mut omega: _ = E::Fr::root_of_unity();
+        for _ in degree..E::Fr::S {
+            omega.square();
+        }
+        omega
+    }
+
+    fn size_of(coeffs: &Vec<G>) -> Result<(usize,u32)> {
+        let mut m: usize = 1;
+        let mut exp: u32 = 0;
+        while m < coeffs.len() {
+            m *= 2;
+            exp += 1;
+
+            let upper_bound: _ = E::Fr::S;
+            if exp >= upper_bound {
+                return Err(SynthesisError::PolynomialDegreeTooLarge);
+            }
+        }
+        Ok((m,exp))
     }
 
     pub fn fft(&mut self, worker: &Worker) {
@@ -98,7 +115,10 @@ impl<E: ScalarEngine, G: Group<E>> EvaluationDomain<E, G> {
 
     pub fn distribute_powers(&mut self, worker: &Worker, g: E::Fr) {
         worker.scope(self.coeffs.len(), |scope, chunk| {
-            for (i, v) in self.coeffs.chunks_mut(chunk).enumerate() {
+            for (i, v) in self.coeffs
+                .chunks_mut(chunk)
+                .enumerate() 
+            {
                 scope.spawn(move || {
                     let mut u = g.pow(&[(i * chunk) as u64]);
                     for v in v.iter_mut() {
@@ -122,23 +142,18 @@ impl<E: ScalarEngine, G: Group<E>> EvaluationDomain<E, G> {
         self.distribute_powers(worker, geninv);
     }
 
-    /// This evaluates t(tau) for this domain, which is
-    /// tau^m - 1 for these radix-2 domains.
-    pub fn z(&self, tau: &E::Fr) -> E::Fr {
-        let mut tmp = tau.pow(&[self.coeffs.len() as u64]);
+    pub fn raise_tau_to_size(&self, tau: E::Fr) -> E::Fr {
+        let size: u64 = self.coeffs.len() as u64;
+        let mut tmp: E::Fr = tau.pow(&[size]);
         tmp.sub_assign(&E::Fr::one());
-
         tmp
     }
 
-    /// The target polynomial is the zero polynomial in our
-    /// evaluation domain, so we must perform division over
-    /// a coset.
-    pub fn divide_by_z_on_coset(&mut self, worker: &Worker) {
-        let i = self
-            .z(&E::Fr::multiplicative_generator())
+    pub fn divide_over_coset(&mut self, worker: &Worker) {
+        let tau: _ = E::Fr::multiplicative_generator();
+        let i = self.raise_tau_to_size(tau)
             .inverse()
-            .unwrap();
+            .expect("could not compute inverse of tau.");
 
         worker.scope(self.coeffs.len(), |scope, chunk| {
             for v in self.coeffs.chunks_mut(chunk) {

@@ -198,13 +198,13 @@ where
 
     // Create bases for blind evaluation of polynomials at tau
     let powers_of_tau = vec![Scalar::<E>(E::Fr::zero()); assembly.num_constraints];
-    let mut powers_of_tau = EvaluationDomain::from_coeffs(powers_of_tau)?;
+    let mut evaluation_domain = EvaluationDomain::from_coeffs(powers_of_tau)?;
 
     // Compute G1 window table
     let mut g1_wnaf = Wnaf::new();
     let g1_wnaf = g1_wnaf.base(g1, {
         // H query
-        (powers_of_tau.as_ref().len() - 1)
+        (evaluation_domain.as_ref().len() - 1)
         // IC/L queries
         + assembly.num_inputs + assembly.num_aux
         // A query
@@ -225,11 +225,11 @@ where
 
     let worker = Worker::new();
 
-    let mut h = vec![E::G1::zero(); powers_of_tau.as_ref().len() - 1];
+    let mut h = vec![E::G1::zero(); evaluation_domain.as_ref().len() - 1];
     {
         // Compute powers of tau
         {
-            let powers_of_tau = powers_of_tau.as_mut();
+            let powers_of_tau = evaluation_domain.as_mut();
             worker.scope(powers_of_tau.len(), |scope, chunk| {
                 for (i, powers_of_tau) in powers_of_tau.chunks_mut(chunk).enumerate() {
                     scope.spawn(move || {
@@ -245,14 +245,14 @@ where
         }
 
         // coeff = t(x) / delta
-        let mut coeff = powers_of_tau.z(&tau);
+        let mut coeff = evaluation_domain.raise_tau_to_size(tau);
         coeff.mul_assign(&delta_inverse);
 
         // Compute the H query with multiple threads
         worker.scope(h.len(), |scope, chunk| {
             for (h, p) in h
                 .chunks_mut(chunk)
-                .zip(powers_of_tau.as_ref().chunks(chunk))
+                .zip(evaluation_domain.as_ref().chunks(chunk))
             {
                 let mut g1_wnaf = g1_wnaf.shared();
 
@@ -275,8 +275,8 @@ where
     }
 
     // Use inverse FFT to convert powers of tau to Lagrange coefficients
-    powers_of_tau.ifft(&worker);
-    let powers_of_tau = powers_of_tau.into_coeffs();
+    evaluation_domain.ifft(&worker);
+    let powers_of_tau = evaluation_domain.into_coeffs();
 
     let mut a = vec![E::G1::zero(); assembly.num_inputs + assembly.num_aux];
     let mut b_g1 = vec![E::G1::zero(); assembly.num_inputs + assembly.num_aux];

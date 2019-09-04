@@ -58,7 +58,7 @@ where
         self.a.sub_assign(worker, &self.c);
         drop(self.c);
 
-        self.a.divide_by_z_on_coset(worker);
+        self.a.divide_over_coset(worker);
         self.a.icoset_fft(worker);
         self.a.into_coeffs()
     }
