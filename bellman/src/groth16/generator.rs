@@ -196,9 +196,11 @@ where
         );
     }
 
+    let worker = Worker::new();
+
     // Create bases for blind evaluation of polynomials at tau
     let powers_of_tau = vec![Scalar::<E>(E::Fr::zero()); assembly.num_constraints];
-    let mut evaluation_domain = EvaluationDomain::from_coeffs(powers_of_tau)?;
+    let mut evaluation_domain = EvaluationDomain::new(powers_of_tau, &worker)?;
 
     // Compute G1 window table
     let mut g1_wnaf = Wnaf::new();
@@ -222,8 +224,6 @@ where
 
     let gamma_inverse = gamma.inverse().ok_or(SynthesisError::UnexpectedIdentity)?;
     let delta_inverse = delta.inverse().ok_or(SynthesisError::UnexpectedIdentity)?;
-
-    let worker = Worker::new();
 
     let mut h = vec![E::G1::zero(); evaluation_domain.as_ref().len() - 1];
     {
@@ -275,7 +275,7 @@ where
     }
 
     // Use inverse FFT to convert powers of tau to Lagrange coefficients
-    evaluation_domain.ifft(&worker);
+    evaluation_domain.ifft();
     let powers_of_tau = evaluation_domain.into_coeffs();
 
     let mut a = vec![E::G1::zero(); assembly.num_inputs + assembly.num_aux];

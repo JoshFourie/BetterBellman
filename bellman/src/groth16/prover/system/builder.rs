@@ -114,8 +114,8 @@ where
     where
         Q: ParameterSource<E>
     {
-        let field: _ = fourier::FourierField::new(eval, worker)?;
-        let linear_coeff: _ = field.fft_shortcut()?;
+        let field: _ = fourier::FourierEvaluationDomain::new(eval, worker)?;
+        let linear_coeff: _ = field.coeffs_by_fft()?;
         Ok(multiexp(&worker, params.get_h()?, FullDensity, linear_coeff))
     }
 
