@@ -34,19 +34,19 @@ where
     {
         let worker: _ = Worker::new();
 
-        let vk: _ = Builder::try_vk(params)?;
+        let vk: _ = try_vk(params)?;
 
-        let h: _ = Builder::try_h(&mut prover.eval, &worker, params)?;
+        let h: _ = try_h(&mut prover.eval, &worker, params)?;
 
-        let (input, aux): _ = Builder::into_primefield(prover.assignment);
+        let (input, aux): _ = into_primefield(prover.assignment);
 
-        let l = Builder::try_l(&aux, &worker, params)?;
+        let l = try_l(&aux, &worker, params)?;
 
         let mut src: _ = source::Source::try_new(prover.density, input.len(), params)?;
         let answer: _ = src.into_answer(&worker, input)?;
         let aux: _ = src.into_auxiliary(&worker, aux)?;
 
-        Ok(Builder {
+        let builder: _ = Self {
             vk,
             r,
             s,
@@ -54,7 +54,8 @@ where
             aux,
             h: h.wait()?,
             l: l.wait()?
-        })
+        };
+        Ok(builder)
     }
 
     pub fn try_build(mut self) -> Result<(E::G1, E::G2, E::G1)> {
@@ -109,56 +110,62 @@ where
 
         Ok(gc)
     } 
+}
 
-    fn try_h<Q>(eval: &mut PolynomialEvaluation<E>, worker: &Worker, params: &mut Q) -> Result<impl Future<Item=E::G1, Error=SynthesisError>>
-    where
-        Q: ParameterSource<E>
-    {
-        let field: _ = fourier::FourierEvaluationDomain::new(eval, worker)?;
-        let linear_coeff: _ = field.coeffs_by_fft()?;
-        Ok(multiexp(&worker, params.get_h()?, FullDensity, linear_coeff))
-    }
+fn into_primefield<E>(assignment: ProvingAssignment<E>) -> (AssignmentField<E>, AssignmentField<E>) 
+where
+    E: Engine
+{
+    let input = Arc::new(
+        assignment.input
+            .into_iter()
+            .map(|s| s.into_repr())
+            .collect::<Vec<_>>(),
+    );
 
-    fn try_l<R>(aux: &AssignmentField<E>, worker: &Worker, params: &mut R) -> Result<impl Future<Item=E::G1, Error=SynthesisError>> 
-    where
-        R: ParameterSource<E>
-    {
-        let l: _ = multiexp(
-            &worker,
-            params.get_l()?,
-            FullDensity,
-            aux.clone(),
-        );
-        Ok(l)
-    }
+    let aux = Arc::new(
+        assignment.aux
+            .into_iter()
+            .map(|s| s.into_repr())
+            .collect::<Vec<_>>(),
+    );
 
-    fn try_vk<S>(params: &mut S) -> Result<VerifyingKey<E>> 
-    where
-        S: ParameterSource<E>
-    {
-        let vk = params.get_vk()?;
-        if vk.delta_g1.is_zero() || vk.delta_g2.is_zero() {
-            // If this element is zero, someone is trying to perform a
-            // subversion-CRS attack.
-            return Err(SynthesisError::UnexpectedIdentity);
-        } else { Ok(vk) }
-    }
+    (input, aux)
+}
 
-    fn into_primefield(assignment: ProvingAssignment<E>) -> (AssignmentField<E>, AssignmentField<E>) {
-        let input = Arc::new(
-            assignment.input
-                .into_iter()
-                .map(|s| s.into_repr())
-                .collect::<Vec<_>>(),
-        );
+fn try_h<E,P>(eval: &mut PolynomialEvaluation<E>, worker: &Worker, params: &mut P) -> Result<impl Future<Item=E::G1, Error=SynthesisError>>
+where
+    E: Engine,
+    P: ParameterSource<E>
+{
+    let linear_coeffs: _ = fourier::evaluate_coefficients(eval, worker)?;
+    let multi_exponentiated_coeffs: _ = multiexp(&worker, params.get_h()?, FullDensity, linear_coeffs);
+    Ok(multi_exponentiated_coeffs)
+}
 
-        let aux = Arc::new(
-            assignment.aux
-                .into_iter()
-                .map(|s| s.into_repr())
-                .collect::<Vec<_>>(),
-        );
+fn try_l<E,P>(aux: &AssignmentField<E>, worker: &Worker, params: &mut P) -> Result<impl Future<Item=E::G1, Error=SynthesisError>> 
+where
+    E: Engine,
+    P: ParameterSource<E>
+{
+    let l: _ = multiexp(
+        &worker,
+        params.get_l()?,
+        FullDensity,
+        aux.clone(),
+    );
+    Ok(l)
+}
 
-        (input, aux)
-    }
+fn try_vk<E,P>(params: &mut P) -> Result<VerifyingKey<E>> 
+where
+    E: Engine,
+    P: ParameterSource<E>
+{
+    let vk = params.get_vk()?;
+    if vk.delta_g1.is_zero() || vk.delta_g2.is_zero() {
+        // If this element is zero, someone is trying to perform a
+        // subversion-CRS attack.
+        return Err(SynthesisError::UnexpectedIdentity);
+    } else { Ok(vk) }
 }

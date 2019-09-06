@@ -11,7 +11,6 @@
 //! by performing an O(n log n) FFT over such a domain.
 
 use ff::{Field, PrimeField, ScalarEngine};
-use group::CurveProjective;
 
 use crate::{error, multicore, fft, arith};
 use error::{SynthesisError, Result};
@@ -63,7 +62,7 @@ where
     }
 
     fn maybe_pad_with_zeroes(coeffs: &mut Vec<G>, size: usize) {
-        coeffs.resize(size, G::group_zero());
+        coeffs.resize(size, G::zero());
     }
 
     // Compute omega, the 2^exp primitive root of unity
@@ -96,6 +95,10 @@ where
 
     pub fn into_coeffs(self) -> Vec<G> {
         self.coeffs
+    }
+
+    pub fn as_coeffs(&self) -> &[G] {
+        &self.coeffs
     }
 
     pub fn fft(&mut self) {
@@ -311,13 +314,13 @@ fn parallel_fft_consistency() {
                     .map(|_| Scalar::<E>(E::Fr::random(rng)))
                     .collect::<Vec<_>>();
                 let mut v1 = EvaluationDomain::new(v1, &worker).unwrap();
-                let mut v2 = EvaluationDomain::new(v1.into_coeffs().clone(), &worker).unwrap();
+                let mut v2 = EvaluationDomain::new(v1.coeffs.clone(), &worker).unwrap();
 
                 for log_cpus in log_d..min(log_d + 1, 3) {
-                    fft::parallel_fft(&mut v1.into_coeffs(), &worker, &v1.omega, log_d, log_cpus);
-                    fft::serial_fft(&mut v2.into_coeffs(), &v2.omega, log_d);
+                    fft::parallel_fft(&mut v1.coeffs, &worker, &v1.omega, log_d, log_cpus);
+                    fft::serial_fft(&mut v2.coeffs, &v2.omega, log_d);
 
-                    assert!(v1.into_coeffs() == v2.into_coeffs());
+                    assert!(v1.coeffs == v2.coeffs);
                 }
             }
         }

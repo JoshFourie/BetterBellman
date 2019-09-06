@@ -7,25 +7,17 @@ use crate::domain::EvaluationDomain;
 use crate::arith::Scalar;
 use super::{PolynomialEvaluation, Worker, AssignmentField, Result};
 
-pub fn evaluate_coefficients<E>(eval: &mut PolynomialEvaluation<E>, worker: &Worker) -> Result<AssignmentField>
+pub fn evaluate_coefficients<E>(eval: &mut PolynomialEvaluation<E>, worker: &Worker) -> Result<AssignmentField<E>>
 where
     E: Engine
 {
-    let (a,b,c): _ = unimplemented!();
-    let mut a: _ = self.transform_field().into_coefficients()?;
-    let new_len = a.len() - 1;
-    a.truncate(new_len);
-
-    let repr: Vec<_> =  a.into_iter()
-        .map(|s| s.0.into_repr())
-        .collect();
-        
-    Ok(Arc::new(repr))
+    let fourier_eval_domain: _ = FourierEvaluationDomain::new(eval, worker)?;
+    fourier_eval_domain.coeffs_by_fft()
 }
 
 // fn into_domains(eval: &'a mut PolynomialEvaluation<E>, worker: &'a Worker) 
 
-pub struct FourierEvaluationDomain<'a, E: Engine> {
+struct FourierEvaluationDomain<'a, E: Engine> {
     a: EvaluationDomain<'a,E,Scalar<E>>,
     b: EvaluationDomain<'a,E,Scalar<E>>,
     c: EvaluationDomain<'a,E,Scalar<E>>,
@@ -35,7 +27,7 @@ impl<'a,E> FourierEvaluationDomain<'a,E>
 where
     E: Engine
 {
-    pub fn new(eval: &'a mut PolynomialEvaluation<E>, worker: &'a Worker) -> Result<Self> {
+    fn new(eval: &'a mut PolynomialEvaluation<E>, worker: &'a Worker) -> Result<Self> {
         let a = EvaluationDomain::new(eval.a.take()?, worker)?;
         let b = EvaluationDomain::new(eval.b.take()?, worker)?;
         let c = EvaluationDomain::new(eval.c.take()?, worker)?;
@@ -43,7 +35,7 @@ where
     }
 
     // The efficiency shortcut for building coefficients from the groth16 paper.
-    pub fn coeffs_by_fft(self) ->  Result<AssignmentField<E>> {
+    fn coeffs_by_fft(self) ->  Result<AssignmentField<E>> {
         let mut a: _ = self.transform_field().into_coefficients()?;
         let new_len = a.len() - 1;
         a.truncate(new_len);

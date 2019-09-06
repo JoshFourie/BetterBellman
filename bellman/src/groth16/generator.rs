@@ -11,13 +11,11 @@ use crate::{Circuit, ConstraintSystem, Index, LinearCombination, SynthesisError,
 use crate::domain::EvaluationDomain;
 use crate::multicore::Worker;
 use crate::arith::{Group, Scalar, Point};
+use crate::error::Result;
 
 /// Generates a random common reference string for
 /// a circuit.
-pub fn generate_random_parameters<E, C, R>(
-    circuit: C,
-    rng: &mut R,
-) -> Result<Parameters<E>, SynthesisError>
+pub fn generate_random_parameters<E,C,R>(circuit: C, rng: &mut R) -> Result<Parameters<E>>
 where
     E: Engine,
     C: Circuit<E>,
@@ -31,7 +29,7 @@ where
     let delta = E::Fr::random(rng);
     let tau = E::Fr::random(rng);
 
-    generate_parameters::<E, C>(circuit, g1, g2, alpha, beta, gamma, delta, tau)
+    generate_parameters(circuit, g1, g2, alpha, beta, gamma, delta, tau)
 }
 
 /// This is our assembly structure that we'll use to synthesize the
@@ -48,12 +46,46 @@ struct KeypairAssembly<E: Engine> {
     ct_aux: Vec<Vec<(E::Fr, usize)>>,
 }
 
-impl<E: Engine> ConstraintSystem<E> for KeypairAssembly<E> {
+impl<E> KeypairAssembly<E>
+where
+    E: Engine
+{
+    fn allocate_one_input(&mut self) -> Result<()>
+    where
+        E: Engine
+    {
+        self.alloc_input(
+            || "", 
+            || Ok(E::Fr::one())
+        )?;
+        Ok(())
+    }
+
+    fn enforce_full_density(&mut self) -> Result<()>
+    where
+        E: Engine
+    {
+        for i in 0..self.num_inputs {
+            self.enforce(
+                || "", 
+                |lc| lc + Variable::new_unchecked(Index::Input(i)), 
+                |lc| lc, 
+                |lc| lc
+            );
+        }
+        Ok(())
+    }
+}
+
+impl<E> ConstraintSystem<E> for KeypairAssembly<E> 
+where
+    E: Engine
+{
     type Root = Self;
 
-    fn alloc<F, A, AR>(&mut self, _: A, _: F) -> Result<Variable, SynthesisError>
+    fn alloc<F, A, AR>(&mut self, _: A, _: F) -> Result<Variable>
     where
-        F: FnOnce() -> Result<E::Fr, SynthesisError>,
+        F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
         AR: Into<String>,
     {
@@ -70,9 +102,9 @@ impl<E: Engine> ConstraintSystem<E> for KeypairAssembly<E> {
         Ok(Variable::new_unchecked(Index::Aux(index)))
     }
 
-    fn alloc_input<F, A, AR>(&mut self, _: A, _: F) -> Result<Variable, SynthesisError>
+    fn alloc_input<F, A, AR>(&mut self, _: A, _: F) -> Result<Variable>
     where
-        F: FnOnce() -> Result<E::Fr, SynthesisError>,
+        F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
         AR: Into<String>,
     {
@@ -150,6 +182,27 @@ impl<E: Engine> ConstraintSystem<E> for KeypairAssembly<E> {
     }
 }
 
+impl<E> Default for KeypairAssembly<E>
+where
+    E: Engine
+{
+    fn default() -> Self {
+        KeypairAssembly {
+            num_inputs: 0,
+            num_aux: 0,
+            num_constraints: 0,
+            at_inputs: vec![],
+            bt_inputs: vec![],
+            ct_inputs: vec![],
+            at_aux: vec![],
+            bt_aux: vec![],
+            ct_aux: vec![],
+        }
+    }
+}
+
+
+
 /// Create parameters for a circuit, given some toxic waste.
 pub fn generate_parameters<E, C>(
     circuit: C,
@@ -160,39 +213,19 @@ pub fn generate_parameters<E, C>(
     gamma: E::Fr,
     delta: E::Fr,
     tau: E::Fr,
-) -> Result<Parameters<E>, SynthesisError>
+) -> Result<Parameters<E>>
 where
     E: Engine,
     C: Circuit<E>,
 {
-    let mut assembly = KeypairAssembly {
-        num_inputs: 0,
-        num_aux: 0,
-        num_constraints: 0,
-        at_inputs: vec![],
-        bt_inputs: vec![],
-        ct_inputs: vec![],
-        at_aux: vec![],
-        bt_aux: vec![],
-        ct_aux: vec![],
-    };
+    let mut assembly: _ = KeypairAssembly::default();
 
-    // Allocate the "one" input variable
-    assembly.alloc_input(|| "", || Ok(E::Fr::one()))?;
+    assembly.allocate_one_input()?;
 
     // Synthesize the circuit.
     circuit.synthesize(&mut assembly)?;
 
-    // Input constraints to ensure full density of IC query
-    // x * 0 = 0
-    for i in 0..assembly.num_inputs {
-        assembly.enforce(
-            || "", 
-            |lc| lc + Variable::new_unchecked(Index::Input(i)), 
-            |lc| lc, 
-            |lc| lc
-        );
-    }
+    assembly.enforce_full_density()?;
 
     let worker = Worker::new();
 

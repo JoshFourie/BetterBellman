@@ -3,7 +3,7 @@ use std::ops;
 use ff::{ScalarEngine, Field, PrimeField};
 use group::CurveProjective;
 
-pub trait Group<'a,E: ScalarEngine>: Sized 
+pub trait Group<'a,E>: Sized 
     + Copy 
     + Clone 
     + Send 
@@ -12,9 +12,10 @@ pub trait Group<'a,E: ScalarEngine>: Sized
     + ops::SubAssign<&'a Self>
     + ops::AddAssign<&'a Self>
 where
-    Self: 'a
+    Self: 'a,
+    E: ScalarEngine    
 {
-    fn group_zero() -> Self;
+    fn zero() -> Self;
 }
 
 pub struct Point<G>(pub G);
@@ -64,7 +65,7 @@ impl<'a,G> Group<'a,G::Engine> for Point<G>
 where
     G: CurveProjective
 {
-    fn group_zero() -> Self {
+    fn zero() -> Self {
         Point(G::zero())
     }
 }
@@ -89,7 +90,7 @@ impl<'a,E> Group<'a,E> for Scalar<E>
 where
     E: ScalarEngine
 {
-    fn group_zero() -> Self {
+    fn zero() -> Self {
         Scalar(E::Fr::zero())
     }
 }
