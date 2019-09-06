@@ -24,6 +24,8 @@ pub mod namespace;
 pub mod constraint;
 pub mod multicore;
 mod multiexp;
+mod fft;
+mod arith;
 
 use ff::{ScalarEngine};
 

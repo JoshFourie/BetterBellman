@@ -7,7 +7,7 @@ use pairing::Engine;
 use super::{ParameterSource, Result};
 
 use crate::{ConstraintSystem, Index, LinearCombination, Variable};
-use crate::domain::Scalar;
+use crate::arith::Scalar;
 use crate::multiexp::DensityTracker;
 use crate::multicore::Worker;
 

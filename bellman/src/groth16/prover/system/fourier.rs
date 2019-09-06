@@ -3,8 +3,27 @@ use std::sync::Arc;
 use ff::PrimeField;
 use pairing::Engine;
 
-use crate::domain::{EvaluationDomain, Scalar};
+use crate::domain::EvaluationDomain;
+use crate::arith::Scalar;
 use super::{PolynomialEvaluation, Worker, AssignmentField, Result};
+
+pub fn evaluate_coefficients<E>(eval: &mut PolynomialEvaluation<E>, worker: &Worker) -> Result<AssignmentField>
+where
+    E: Engine
+{
+    let (a,b,c): _ = unimplemented!();
+    let mut a: _ = self.transform_field().into_coefficients()?;
+    let new_len = a.len() - 1;
+    a.truncate(new_len);
+
+    let repr: Vec<_> =  a.into_iter()
+        .map(|s| s.0.into_repr())
+        .collect();
+        
+    Ok(Arc::new(repr))
+}
+
+// fn into_domains(eval: &'a mut PolynomialEvaluation<E>, worker: &'a Worker) 
 
 pub struct FourierEvaluationDomain<'a, E: Engine> {
     a: EvaluationDomain<'a,E,Scalar<E>>,

@@ -7,12 +7,10 @@ use group::{CurveAffine, CurveProjective, Wnaf};
 use pairing::Engine;
 
 use super::{Parameters, VerifyingKey};
-
 use crate::{Circuit, ConstraintSystem, Index, LinearCombination, SynthesisError, Variable};
-
-use crate::domain::{EvaluationDomain, Scalar};
-
+use crate::domain::EvaluationDomain;
 use crate::multicore::Worker;
+use crate::arith::{Group, Scalar, Point};
 
 /// Generates a random common reference string for
 /// a circuit.
