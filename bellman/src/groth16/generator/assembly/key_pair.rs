@@ -1,12 +1,16 @@
 use ff::Field;
 use pairing::Engine;
 
-use crate::{ConstraintSystem, Index, LinearCombination, Variable};
-use crate::error::Result;
+use crate::{ConstraintSystem, Circuit, Index, LinearCombination, Variable};
+use crate::{domain, error, arith, multicore};
+use domain::Domain;
+use error::Result;
+use arith::Scalar;
+use multicore::Worker;
 
 /// This is our assembly structure that we'll use to synthesize the
 /// circuit into a QAP.
-pub struct KeypairAssembly<E: Engine> {
+pub struct KeyPairAssembly<E: Engine> {
     pub num_inputs: usize,
     pub num_aux: usize,
     pub num_constraints: usize,
@@ -18,14 +22,11 @@ pub struct KeypairAssembly<E: Engine> {
     pub ct_aux: Vec<Vec<(E::Fr, usize)>>,
 }
 
-impl<E> KeypairAssembly<E>
+impl<E> KeyPairAssembly<E>
 where
     E: Engine
 {
-    pub fn allocate_one_input(&mut self) -> Result<()>
-    where
-        E: Engine
-    {
+    pub fn allocate_input_one(&mut self) -> Result<()> {
         self.alloc_input(
             || "", 
             || Ok(E::Fr::one())
@@ -33,10 +34,7 @@ where
         Ok(())
     }
 
-    pub fn enforce_full_density(&mut self) -> Result<()>
-    where
-        E: Engine
-    {
+    pub fn enforce_full_density(&mut self) -> Result<()> {
         for i in 0..self.num_inputs {
             self.enforce(
                 || "", 
@@ -47,9 +45,21 @@ where
         }
         Ok(())
     }
+
+    pub fn synthesize_circuit<C>(&mut self, circuit: C) -> Result<()>
+    where
+        C: Circuit<E>
+    {
+        circuit.synthesize(self)
+    }
+
+    pub fn blind_evaluation_base<'a>(&'a self, worker: &'a Worker) -> Result<Domain<'a, E, Scalar<E>>> {
+        let powers_of_tau = vec![Scalar(E::Fr::zero()); self.num_constraints];
+        Domain::new(powers_of_tau, worker)
+    } 
 }
 
-impl<E> ConstraintSystem<E> for KeypairAssembly<E> 
+impl<E> ConstraintSystem<E> for KeyPairAssembly<E> 
 where
     E: Engine
 {
@@ -154,12 +164,12 @@ where
     }
 }
 
-impl<E> Default for KeypairAssembly<E>
+impl<E> Default for KeyPairAssembly<E>
 where
     E: Engine
 {
     fn default() -> Self {
-        KeypairAssembly {
+        KeyPairAssembly {
             num_inputs: 0,
             num_aux: 0,
             num_constraints: 0,

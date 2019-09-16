@@ -91,12 +91,12 @@ where
             rs.mul_assign(&self.s);
             self.vk.delta_g1.mul(rs)
         };
-        let As: _ = self.vk.alpha_g1.mul(self.s);
-        let Br: _ = self.vk.beta_g1.mul(self.r);
+        let a_mul_s: _ = self.vk.alpha_g1.mul(self.s);
+        let b_mul_r: _ = self.vk.beta_g1.mul(self.r);
 
         let mut gc: _ = delta_rs;
-        gc.add_assign(&As);
-        gc.add_assign(&Br);
+        gc.add_assign(&a_mul_s);
+        gc.add_assign(&b_mul_r);
 
         self.answer.a.mul_assign(self.s);
         gc.add_assign(&self.answer.a);

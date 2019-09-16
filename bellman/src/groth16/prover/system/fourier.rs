@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ff::PrimeField;
 use pairing::Engine;
 
-use crate::domain::EvaluationDomain;
+use crate::domain::Domain;
 use crate::arith::Scalar;
 use super::{PolynomialEvaluation, Worker, AssignmentField, Result};
 
@@ -18,9 +18,9 @@ where
 // fn into_domains(eval: &'a mut PolynomialEvaluation<E>, worker: &'a Worker) 
 
 struct FourierEvaluationDomain<'a, E: Engine> {
-    a: EvaluationDomain<'a,E,Scalar<E>>,
-    b: EvaluationDomain<'a,E,Scalar<E>>,
-    c: EvaluationDomain<'a,E,Scalar<E>>,
+    a: Domain<'a,E,Scalar<E>>,
+    b: Domain<'a,E,Scalar<E>>,
+    c: Domain<'a,E,Scalar<E>>,
 }
 
 impl<'a,E> FourierEvaluationDomain<'a,E> 
@@ -28,9 +28,9 @@ where
     E: Engine
 {
     fn new(eval: &'a mut PolynomialEvaluation<E>, worker: &'a Worker) -> Result<Self> {
-        let a = EvaluationDomain::new(eval.a.take()?, worker)?;
-        let b = EvaluationDomain::new(eval.b.take()?, worker)?;
-        let c = EvaluationDomain::new(eval.c.take()?, worker)?;
+        let a = Domain::new(eval.a.take()?, worker)?;
+        let b = Domain::new(eval.b.take()?, worker)?;
+        let c = Domain::new(eval.c.take()?, worker)?;
         Ok(FourierEvaluationDomain {a, b, c})
     }
 

@@ -2,8 +2,11 @@ use ff::{Field, PrimeField};
 use group::{CurveProjective, Wnaf};
 use pairing::Engine;
 
-use crate::multicore::Worker;
-use crate::arith::Scalar;
+use crate::{multicore, arith};
+use multicore::Worker;
+use arith::Scalar;
+
+use super::key_pair::KeyPairAssembly;
 
 pub fn eval<E: Engine>(
     // wNAF window tables
@@ -117,4 +120,86 @@ pub fn eval<E: Engine>(
             });
         }
     });
+}
+
+pub struct EvaluationWriter<E>
+where
+    E: Engine
+{
+    pub a: Vec<E::G1>,
+    pub b_g1: Vec<E::G1>,
+    pub b_g2: Vec<E::G2>,
+    pub ic: Option<Vec<E::G1>>,
+    pub l: Vec<E::G1>
+}
+
+impl<E> EvaluationWriter<E> 
+where
+    E: Engine
+{
+    pub fn new(key_pair: &KeyPairAssembly<E>) -> Self {
+        let a = vec![E::G1::zero(); key_pair.num_inputs + key_pair.num_aux];
+        let b_g1 = vec![E::G1::zero(); key_pair.num_inputs + key_pair.num_aux];
+        let b_g2 = vec![E::G2::zero(); key_pair.num_inputs + key_pair.num_aux];
+        let ic = vec![E::G1::zero(); key_pair.num_inputs];
+        let l = vec![E::G1::zero(); key_pair.num_aux];
+        
+        Self { 
+            a, 
+            b_g1, 
+            b_g2, 
+            ic: Some(ic), 
+            l 
+        }
+    }
+
+    pub fn is_unconstrained(&self) -> bool {
+        for e in self.l.iter() {
+            if e.is_zero() {
+                return true
+            }
+        }
+        false
+    }
+    
+    pub fn filter_non_zero_and_map_to_affine(self) -> (Vec<E::G1Affine>, Vec<E::G1Affine>, Vec<E::G1Affine>, Vec<E::G2Affine>) {
+        let l: _ = map_g1_to_affine::<_,E>(self.l);
+        let a: _ = filter_and_map_g1_to_affine::<_,E>(self.a);
+        let b_g1: _ = filter_and_map_g1_to_affine::<_,E>(self.b_g1);
+        let b_g2: _ = filter_and_map_g2_to_affine::<_,E>(self.b_g2);
+            
+        (l, a, b_g1, b_g2)
+    }
+}
+
+fn map_g1_to_affine<I,E>(iter: I) -> Vec<E::G1Affine>
+where
+    I: IntoIterator<Item = E::G1>,
+    E: Engine
+{
+    iter.into_iter()
+        .map(|e| e.into_affine())
+        .collect()
+}
+
+fn filter_and_map_g1_to_affine<I,E>(iter: I) -> Vec<E::G1Affine>
+where
+    I: IntoIterator<Item = E::G1>,
+    E: Engine
+{
+    iter.into_iter()
+        .filter(|e| !e.is_zero())
+        .map(|e| e.into_affine())
+        .collect()
+}
+
+fn filter_and_map_g2_to_affine<I,E>(iter: I) -> Vec<E::G2Affine>
+where
+    I: IntoIterator<Item = E::G2>,
+    E: Engine
+{
+    iter.into_iter()
+        .filter(|e| !e.is_zero())
+        .map(|e| e.into_affine())
+        .collect()
 }

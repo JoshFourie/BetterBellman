@@ -131,7 +131,7 @@ where
 mod test {
     use super::*;
     use arith::Scalar;
-    use crate::domain::EvaluationDomain;
+    use crate::domain::Domain;
 
     #[cfg(feature = "pairing")]
     #[test]
@@ -150,7 +150,7 @@ mod test {
                     v.push(Scalar::<E>(E::Fr::random(rng)));
                 }
 
-                let mut domain = EvaluationDomain::new(v.clone(), &worker).unwrap();
+                let mut domain = Domain::new(v.clone(), &worker).unwrap();
 
                 domain.ifft();
                 domain.fft();

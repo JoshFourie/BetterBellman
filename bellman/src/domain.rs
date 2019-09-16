@@ -1,4 +1,4 @@
-//! This module contains an `EvaluationDomain` abstraction for
+//! This module contains an `Domain` abstraction for
 //! performing various kinds of polynomial arithmetic on top of
 //! the scalar field.
 //!
@@ -19,7 +19,7 @@ use arith::{Scalar, Group};
 
 use std::ops;
 
-pub struct EvaluationDomain<'a,E,G> 
+pub struct Domain<'a,E,G> 
 where
     E: ScalarEngine
 {
@@ -32,7 +32,7 @@ where
     worker: &'a Worker
 }
 
-impl<'a,E,G> EvaluationDomain<'a,E,G> 
+impl<'a,E,G> Domain<'a,E,G> 
 where
     E: ScalarEngine,
     for <'b> G: Group<'b,E>
@@ -49,7 +49,7 @@ where
 
         Self::maybe_pad_with_zeroes(&mut coeffs, m);
 
-        let domain: _ = EvaluationDomain {
+        let domain: _ = Domain {
             coeffs,
             exp,
             omega,
@@ -152,16 +152,17 @@ where
         self.distribute_powers(geninv);
     }
 
-    pub fn raise_tau_to_size(&self, tau: E::Fr) -> E::Fr {
+    pub fn raise_tau_to_size(&self, tau: &mut E::Fr) {
         let size: u64 = self.coeffs.len() as u64;
         let mut tmp: E::Fr = tau.pow(&[size]);
         tmp.sub_assign(&E::Fr::one());
-        tmp
+        *tau = tmp;
     }
 
     pub fn divide_over_coset(&mut self) -> Result<()> {
-        let tau: _ = E::Fr::multiplicative_generator();
-        let i = self.raise_tau_to_size(tau).inverse()?;
+        let mut tau: _ = E::Fr::multiplicative_generator();
+        self.raise_tau_to_size(&mut tau);
+        let i: E::Fr = tau.inverse()?;
 
         self.worker
             .scope(self.coeffs.len(), |scope, chunk| {
@@ -179,7 +180,7 @@ where
     }
 }
 
-impl<'a,'b,E,G> ops::SubAssign<&'a Self> for EvaluationDomain<'b,E,G> 
+impl<'a,'b,E,G> ops::SubAssign<&'a Self> for Domain<'b,E,G> 
 where
     E: ScalarEngine,
     G: Group<'a,E>
@@ -206,12 +207,12 @@ where
     }
 }
 
-impl<'a,'b,'c,E,G> ops::MulAssign<&'a EvaluationDomain<'b,E,Scalar<E>>> for EvaluationDomain<'c,E,G>
+impl<'a,'b,'c,E,G> ops::MulAssign<&'a Domain<'b,E,Scalar<E>>> for Domain<'c,E,G>
 where
     E: ScalarEngine,
     G: Group<'a,E>
 {
-    fn mul_assign(&mut self, rhs: &'a EvaluationDomain<'b,E,Scalar<E>>) {
+    fn mul_assign(&mut self, rhs: &'a Domain<'b,E,Scalar<E>>) {
         assert_eq!(self.coeffs.len(), rhs.coeffs.len());
 
         self.worker
@@ -233,7 +234,7 @@ where
     }       
 }
 
-impl<'a,E,G> AsRef<[G]> for EvaluationDomain<'a,E,G> 
+impl<'a,E,G> AsRef<[G]> for Domain<'a,E,G> 
 where
     E: ScalarEngine,
     G: Group<'a,E>
@@ -276,8 +277,8 @@ fn polynomial_arith() {
                 a.resize(coeffs_a + coeffs_b, Scalar(E::Fr::zero()));
                 b.resize(coeffs_a + coeffs_b, Scalar(E::Fr::zero()));
 
-                let mut a = EvaluationDomain::new(a, &worker).unwrap();
-                let mut b = EvaluationDomain::new(b, &worker).unwrap();
+                let mut a = Domain::new(a, &worker).unwrap();
+                let mut b = Domain::new(b, &worker).unwrap();
 
                 a.fft();
                 b.fft();
@@ -313,8 +314,8 @@ fn parallel_fft_consistency() {
                 let v1 = (0..d)
                     .map(|_| Scalar::<E>(E::Fr::random(rng)))
                     .collect::<Vec<_>>();
-                let mut v1 = EvaluationDomain::new(v1, &worker).unwrap();
-                let mut v2 = EvaluationDomain::new(v1.coeffs.clone(), &worker).unwrap();
+                let mut v1 = Domain::new(v1, &worker).unwrap();
+                let mut v2 = Domain::new(v1.coeffs.clone(), &worker).unwrap();
 
                 for log_cpus in log_d..min(log_d + 1, 3) {
                     fft::parallel_fft(&mut v1.coeffs, &worker, &v1.omega, log_d, log_cpus);
