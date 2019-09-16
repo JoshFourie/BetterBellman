@@ -1,24 +1,33 @@
-//! This module contains an `Domain` abstraction for
-//! performing various kinds of polynomial arithmetic on top of
-//! the scalar field.
-//!
-//! In pairing-based SNARKs like Groth16, we need to calculate
-//! a quotient polynomial over a target polynomial with roots
-//! at distinct points associated with each constraint of the
-//! constraint system. In order to be efficient, we choose these
-//! roots to be the powers of a 2^n root of unity in the field.
-//! This allows us to perform polynomial operations in O(n)
-//! by performing an O(n log n) FFT over such a domain.
+pub mod arith;
+pub mod linear;
+pub mod fft;
+pub mod multiexp;
+
+pub use arith::*;
+pub use linear::*;
+pub use fft::*;
+pub use multiexp::*;
 
 use ff::{Field, PrimeField, ScalarEngine};
 
-use crate::{error, multicore, fft, arith};
+use crate::{error, multicore};
 use error::{SynthesisError, Result};
 use multicore::Worker;
 use arith::{Scalar, Group};
 
 use std::ops;
 
+/// A `Domain` abstraction for
+/// performing various kinds of polynomial arithmetic on top of
+/// the scalar field.
+///
+/// In pairing-based SNARKs like Groth16, we need to calculate
+/// a quotient polynomial over a target polynomial with roots
+/// at distinct points associated with each constraint of the
+/// constraint system. In order to be efficient, we choose these
+/// roots to be the powers of a 2^n root of unity in the field.
+/// This allows us to perform polynomial operations in O(n)
+/// by performing an O(n log n) FFT over such a domain.
 pub struct Domain<'a,E,G> 
 where
     E: ScalarEngine
@@ -331,4 +340,3 @@ fn parallel_fft_consistency() {
 
     test_consistency::<Bls12, _>(rng);
 }
-

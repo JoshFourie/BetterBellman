@@ -55,12 +55,13 @@ where
     let mut evaluation_domain: Domain<_,_> = key_pair.blind_evaluation_base(&worker)?; 
 
     let mut windows: _ = WindowTables::default();
-    let based: _ = windows.into_based(&key_pair, &assembly, &evaluation_domain);
+    let based: _ = windows.as_based(&key_pair, &assembly, &evaluation_domain);
 
     let h: Vec<E::G1Affine> = assembly.compute_h(&mut evaluation_domain, &based.g1, &worker)?;
-    let lagrange_coeffs = into_lagrange_coefficients(evaluation_domain);
 
     let mut writer: _ = EvaluationWriter::new(&key_pair);
+    let lagrange_coeffs = into_lagrange_coefficients(evaluation_domain);
+
     assembly.evaluate(&mut writer, &key_pair, based, &lagrange_coeffs);
     
     if writer.is_unconstrained() {

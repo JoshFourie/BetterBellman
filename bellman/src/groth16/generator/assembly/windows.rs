@@ -31,7 +31,7 @@ impl<E> WindowTables<E>
 where
     E: Engine
 {
-    pub fn into_based<'a,C,G>(&'a mut self, kp: &KeyPairAssembly<E>, param: &ParameterAssembly<'a,E,C>, dom: &Domain<'a,E,G>) -> BasedWindowTables<'a,E> 
+    pub fn as_based<'a,C,G>(&'a mut self, kp: &KeyPairAssembly<E>, param: &ParameterAssembly<'a,E,C>, dom: &Domain<'a,E,G>) -> BasedWindowTables<'a,E> 
     where
         G: Group<'a,E>
     {

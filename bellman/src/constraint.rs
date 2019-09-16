@@ -1,4 +1,8 @@
-use crate::{Variable, LinearCombination, ScalarEngine, Namespace, Result, Index};
+use crate::{Namespace, domain, error};
+use domain::{Variable, LinearCombination, Index};
+use error::Result;
+
+use ff::ScalarEngine;
 
 /// Represents a constraint system which can have new variables
 /// allocated and constrains between them formed.

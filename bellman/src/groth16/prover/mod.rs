@@ -38,7 +38,9 @@ where
     )?;
     circuit.synthesize(&mut prover)?;
     
-    let (ga,gb,gc): _ = prover.prepare(&mut params, r, s)?.try_build()?;
+    let (ga,gb,gc): _ = prover
+        .prepare(&mut params, r, s)?
+        .try_build()?;
 
     Ok(Proof {
         a: ga.into_affine(),

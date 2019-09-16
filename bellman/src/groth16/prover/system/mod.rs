@@ -7,9 +7,10 @@ use pairing::Engine;
 use super::{ParameterSource, Result};
 
 use crate::{ConstraintSystem, Index, LinearCombination, Variable};
-use crate::arith::Scalar;
-use crate::multiexp::DensityTracker;
-use crate::multicore::Worker;
+use crate::{arith, multiexp, multicore};
+use arith::Scalar;
+use multiexp::DensityTracker;
+use multicore::Worker;
 
 mod builder;
 mod context;

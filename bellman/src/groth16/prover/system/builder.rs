@@ -1,9 +1,10 @@
 use std::sync::Arc;
+
+use super::{source, context, fourier};
 use super::{
     PolynomialEvaluation, ParameterSource, Result, 
     ProvingSystem, Future, SynthesisError, 
-    AssignmentField, ProvingAssignment,
-    source, context, fourier, 
+    AssignmentField, ProvingAssignment, 
 };
 
 use ff::{Field, PrimeField};
