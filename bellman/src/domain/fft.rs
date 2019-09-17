@@ -1,20 +1,20 @@
-use crate::{multicore, arith};
-use multicore::Worker;
+use crate::{arith, multi_thread, multicore};
+use multicore::MULTI_THREAD;
 use arith::Group;
 
 use ff::{Field, ScalarEngine};
 
-pub fn run_optimal_fft<E,T>(a: &mut [T], worker: &Worker, omega: &E::Fr, log_n: u32) 
+pub fn run_optimal_fft<E,T>(a: &mut [T], omega: &E::Fr, log_n: u32) 
 where
     E: ScalarEngine,
     for <'a> T: Group<'a,E> 
 {
-    let log_cpus = worker.log_num_cpus();
+    let log_cpus = MULTI_THREAD.log_num_cpus();
 
     if log_n <= log_cpus {
         serial_fft(a, omega, log_n);
     } else {
-        parallel_fft(a, worker, omega, log_n, log_cpus);
+        parallel_fft(a, omega, log_n, log_cpus);
     }
 }
 
@@ -60,16 +60,7 @@ where
     }
 }
 
-fn bitreverse(mut n: u32, l: u32) -> u32 {
-    let mut r = 0;
-    for _ in 0..l {
-        r = (r << 1) | (n & 1);
-        n >>= 1;
-    }
-    r
-}
-
-pub fn parallel_fft<E,T>(a: &mut [T], worker: &Worker, omega: &E::Fr, log_n: u32, log_cpus: u32) 
+pub fn parallel_fft<E,T>(a: &mut [T], omega: &E::Fr, log_n: u32, log_cpus: u32) 
 where
     E: ScalarEngine,
     for <'a> T: Group<'a,E>
@@ -81,50 +72,50 @@ where
     let mut tmp = vec![vec![T::zero(); 1 << log_new_n]; num_cpus];
     let new_omega = omega.pow(&[num_cpus as u64]);
 
-    worker.scope(0, |scope, _| {
-        let a: &[T] = a;
+    let ref_a: &_ = a; 
+    multi_thread!(0 => {
+        for (j, tmp) in tmp.iter_mut().enumerate() => {
+            // Shuffle into a sub-FFT
+            let omega_j: _ = omega.pow(&[j as u64]);
+            let omega_step: _ = omega.pow(&[(j as u64) << log_new_n]);
 
-        for (j, tmp) in tmp.iter_mut()
-            .enumerate() 
-        {
-            scope.spawn(move || {
-                // Shuffle into a sub-FFT
-                let omega_j: _ = omega.pow(&[j as u64]);
-                let omega_step: _ = omega.pow(&[(j as u64) << log_new_n]);
-
-                let mut elt: _ = E::Fr::one();
-                for i in 0..(1 << log_new_n) {
-                    for s in 0..num_cpus {
-                        let idx = (i + (s << log_new_n)) % (1 << log_n);
-                        let mut t = a[idx];
-                        t *= &elt;
-                        tmp[i] += &t;
-                        elt.mul_assign(&omega_step);
-                    }
-                    elt.mul_assign(&omega_j);
+            let mut elt: _ = E::Fr::one();
+            for i in 0..(1 << log_new_n) {
+                for s in 0..num_cpus {
+                    let idx = (i + (s << log_new_n)) % (1 << log_n);
+                    let mut t = ref_a[idx];
+                    t *= &elt;
+                    tmp[i] += &t;
+                    elt.mul_assign(&omega_step);
                 }
+                elt.mul_assign(&omega_j);
+            }
 
-                // Perform sub-FFT
-                serial_fft(tmp, &new_omega, log_new_n);
-            });
+            // Perform sub-FFT
+            serial_fft(tmp, &new_omega, log_new_n);
         }
     });
 
-    // TODO: does this hurt or help?
-    worker.scope(a.len(), |scope, chunk| {
-        let tmp = &tmp;
-
-        for (idx, a) in a.chunks_mut(chunk).enumerate() {
-            scope.spawn(move || {
-                let mut idx = idx * chunk;
-                let mask = (1 << log_cpus) - 1;
-                for a in a {
-                    *a = tmp[idx & mask][idx >> log_cpus];
-                    idx += 1;
-                }
-            });
+    let tmp: _ = &tmp;
+    multi_thread!(a.len(), chunk::init() => {
+        for (idx, a) in a.chunks_mut(chunk).enumerate() => {
+            let mut idx = idx * chunk;
+            let mask = (1 << log_cpus) - 1;
+            for a in a {
+                *a = tmp[idx & mask][idx >> log_cpus];
+                idx += 1;
+            }
         }
     });
+}
+
+fn bitreverse(mut n: u32, l: u32) -> u32 {
+    let mut r = 0;
+    for _ in 0..l {
+        r = (r << 1) | (n & 1);
+        n >>= 1;
+    }
+    r
 }
 
 #[cfg(test)]
@@ -140,8 +131,6 @@ mod test {
         use rand_core::RngCore;
 
         fn test_comp<E: ScalarEngine, R: RngCore>(rng: &mut R) {
-            let worker = Worker::new();
-
             for coeffs in 0..10 {
                 let coeffs = 1 << coeffs;
 
@@ -150,7 +139,7 @@ mod test {
                     v.push(Scalar::<E>(E::Fr::random(rng)));
                 }
 
-                let mut domain = Domain::new(v.clone(), &worker).unwrap();
+                let mut domain = Domain::new(v.clone()).unwrap();
 
                 domain.ifft();
                 domain.fft();

@@ -1,4 +1,4 @@
-use super::multicore::Worker;
+use super::multicore::MULTI_THREAD;
 use bit_vec::{self, BitVec};
 use ff::{Field, PrimeField, PrimeFieldRepr, ScalarEngine};
 use futures::Future;
@@ -147,7 +147,6 @@ impl DensityTracker {
 }
 
 fn multiexp_inner<Q, D, G, S>(
-    pool: &Worker,
     bases: S,
     density_map: D,
     exponents: Arc<Vec<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>>,
@@ -167,7 +166,7 @@ where
         let exponents = exponents.clone();
         let density_map = density_map.clone();
 
-        pool.compute(move || {
+        MULTI_THREAD.compute(move || {
             // Accumulate the result
             let mut acc = G::Projective::zero();
 
@@ -229,7 +228,6 @@ where
         // this region recursively.
         Box::new(
             this.join(multiexp_inner(
-                pool,
                 bases,
                 density_map,
                 exponents,
@@ -253,7 +251,6 @@ where
 /// Perform multi-exponentiation. The caller is responsible for ensuring the
 /// query size is the same as the number of exponents.
 pub fn multiexp<Q, D, G, S>(
-    pool: &Worker,
     bases: S,
     density_map: D,
     exponents: Arc<Vec<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>>,
@@ -277,7 +274,7 @@ where
         assert!(query_size == exponents.len());
     }
 
-    multiexp_inner(pool, bases, density_map, exponents, 0, c, true)
+    multiexp_inner(bases, density_map, exponents, 0, c, true)
 }
 
 #[cfg(feature = "pairing")]
@@ -317,9 +314,7 @@ fn test_with_bls12() {
 
     let naive = naive_multiexp(g.clone(), v.clone());
 
-    let pool = Worker::new();
-
-    let fast = multiexp(&pool, (g, 0), FullDensity, v).wait().unwrap();
+    let fast = multiexp((g, 0), FullDensity, v).wait().unwrap();
 
     assert_eq!(naive, fast);
 }

@@ -2,11 +2,10 @@ use ff::Field;
 use pairing::Engine;
 
 use crate::{ConstraintSystem, Circuit, Index, LinearCombination, Variable};
-use crate::{domain, error, arith, multicore};
+use crate::{domain, error, arith};
 use domain::Domain;
 use error::Result;
 use arith::Scalar;
-use multicore::Worker;
 
 /// This is our assembly structure that we'll use to synthesize the
 /// circuit into a QAP.
@@ -53,9 +52,9 @@ where
         circuit.synthesize(self)
     }
 
-    pub fn blind_evaluation_base<'a>(&'a self, worker: &'a Worker) -> Result<Domain<'a, E, Scalar<E>>> {
+    pub fn blind_evaluation_base(&self) -> Result<Domain<E,Scalar<E>>> {
         let powers_of_tau = vec![Scalar(E::Fr::zero()); self.num_constraints];
-        Domain::new(powers_of_tau, worker)
+        Domain::new(powers_of_tau)
     } 
 }
 

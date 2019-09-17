@@ -21,6 +21,7 @@ crossbeam = { version = "0.3", optional = true }
 pairing = { path = "../pairing", optional = true }
 rand_core = "0.5"
 byteorder = "1"
+lazy_static = "1.4"
 
 [dev-dependencies]
 hex-literal = "0.1"

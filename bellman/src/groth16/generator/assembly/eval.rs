@@ -2,8 +2,7 @@ use ff::{Field, PrimeField};
 use group::{CurveProjective, Wnaf};
 use pairing::Engine;
 
-use crate::{multicore, arith};
-use multicore::Worker;
+use crate::{arith, multi_thread};
 use arith::Scalar;
 
 use super::key_pair::KeyPairAssembly;
@@ -33,9 +32,6 @@ pub fn eval<E: Engine>(
     // Trapdoors
     alpha: &E::Fr,
     beta: &E::Fr,
-
-    // Worker
-    worker: &Worker,
 ) {
     // Sanity check
     assert_eq!(a.len(), at.len());
@@ -45,8 +41,7 @@ pub fn eval<E: Engine>(
     assert_eq!(a.len(), b_g2.len());
     assert_eq!(a.len(), ext.len());
 
-    // Evaluate polynomials in multiple threads
-    worker.scope(a.len(), |scope, chunk| {
+    multi_thread!(a.len(), chunk::init() => {
         for ((((((a, b_g1), b_g2), ext), at), bt), ct) in a
             .chunks_mut(chunk)
             .zip(b_g1.chunks_mut(chunk))
@@ -55,12 +50,11 @@ pub fn eval<E: Engine>(
             .zip(at.chunks(chunk))
             .zip(bt.chunks(chunk))
             .zip(ct.chunks(chunk))
-        {
+        => {
             let mut g1_wnaf = g1_wnaf.shared();
             let mut g2_wnaf = g2_wnaf.shared();
 
-            scope.spawn(move || {
-                for ((((((a, b_g1), b_g2), ext), at), bt), ct) in a
+            for ((((((a, b_g1), b_g2), ext), at), bt), ct) in a
                     .iter_mut()
                     .zip(b_g1.iter_mut())
                     .zip(b_g2.iter_mut())
@@ -112,12 +106,11 @@ pub fn eval<E: Engine>(
                     *ext = g1_wnaf.scalar(e.into_repr());
                 }
 
-                // Batch normalize
-                E::G1::batch_normalization(a);
-                E::G1::batch_normalization(b_g1);
-                E::G2::batch_normalization(b_g2);
-                E::G1::batch_normalization(ext);
-            });
+            // Batch normalize
+            E::G1::batch_normalization(a);
+            E::G1::batch_normalization(b_g1);
+            E::G2::batch_normalization(b_g2);
+            E::G1::batch_normalization(ext);
         }
     });
 }

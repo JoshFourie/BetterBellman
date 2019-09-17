@@ -4,6 +4,50 @@
 //! crossbeam but may be extended in the future to
 //! allow for various parallelism strategies.
 
+use lazy_static::lazy_static;
+
+lazy_static!{
+    pub static ref MULTI_THREAD: implementation::Worker = implementation::Worker::new();
+}
+
+#[macro_export]
+macro_rules! multi_thread {
+    ($elements:expr => {
+        for $value:tt in $iter:expr =>
+            $code_block:block   
+    }) => {
+        crate::multicore::MULTI_THREAD.scope($elements, |scope, _| {
+            for $value in $iter {
+                crate::scope!(scope => {
+                    $code_block
+                });
+            }
+        });
+    };    
+
+    ($elements:expr, $chunk:ident::init() => {
+        for $value:tt in $iter:expr =>
+            $code_block:block   
+    }) => {
+        crate::multicore::MULTI_THREAD.scope($elements, |scope, $chunk| {
+            for $value in $iter {
+                crate::scope!(scope => {
+                    $code_block
+                });
+            }
+        });
+    };            
+}
+
+#[macro_export]
+macro_rules! scope {
+    ($scope:expr => $code_block:block) => {
+        $scope.spawn(move || {
+            $code_block
+        });
+    }
+}
+
 #[cfg(feature = "multicore")]
 mod implementation {
     use crossbeam::{self, Scope};

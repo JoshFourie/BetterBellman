@@ -1,7 +1,7 @@
 use ff::{BitIterator, Field, PrimeField};
 use pairing::Engine;
 
-use crate::{ConstraintSystem, LinearCombination, SynthesisError, Variable};
+use crate::{ConstraintSystem, LinearCombination, SynthesisError, Variable, Result};
 
 /// Represents a variable in the constraint system which is guaranteed
 /// to be either zero or one.
@@ -23,11 +23,7 @@ impl AllocatedBit {
     /// Allocate a variable in the constraint system which can only be a
     /// boolean value. Further, constrain that the boolean is false
     /// unless the condition is false.
-    pub fn alloc_conditionally<E, CS>(
-        mut cs: CS,
-        value: Option<bool>,
-        must_be_false: &AllocatedBit,
-    ) -> Result<Self, SynthesisError>
+    pub fn alloc_conditionally<E,CS>(mut cs: CS, value: Option<bool>, must_be_false: &AllocatedBit) -> Result<Self>
     where
         E: Engine,
         CS: ConstraintSystem<E>,
@@ -64,7 +60,7 @@ impl AllocatedBit {
 
     /// Allocate a variable in the constraint system which can only be a
     /// boolean value.
-    pub fn alloc<E, CS>(mut cs: CS, value: Option<bool>) -> Result<Self, SynthesisError>
+    pub fn alloc<E, CS>(mut cs: CS, value: Option<bool>) -> Result<Self>
     where
         E: Engine,
         CS: ConstraintSystem<E>,
@@ -97,7 +93,7 @@ impl AllocatedBit {
 
     /// Performs an XOR operation over the two operands, returning
     /// an `AllocatedBit`.
-    pub fn xor<E, CS>(mut cs: CS, a: &Self, b: &Self) -> Result<Self, SynthesisError>
+    pub fn xor<E, CS>(mut cs: CS, a: &Self, b: &Self) -> Result<Self>
     where
         E: Engine,
         CS: ConstraintSystem<E>,
@@ -152,7 +148,7 @@ impl AllocatedBit {
 
     /// Performs an AND operation over the two operands, returning
     /// an `AllocatedBit`.
-    pub fn and<E, CS>(mut cs: CS, a: &Self, b: &Self) -> Result<Self, SynthesisError>
+    pub fn and<E, CS>(mut cs: CS, a: &Self, b: &Self) -> Result<Self>
     where
         E: Engine,
         CS: ConstraintSystem<E>,
@@ -193,7 +189,7 @@ impl AllocatedBit {
     }
 
     /// Calculates `a AND (NOT b)`.
-    pub fn and_not<E, CS>(mut cs: CS, a: &Self, b: &Self) -> Result<Self, SynthesisError>
+    pub fn and_not<E, CS>(mut cs: CS, a: &Self, b: &Self) -> Result<Self>
     where
         E: Engine,
         CS: ConstraintSystem<E>,
@@ -234,7 +230,7 @@ impl AllocatedBit {
     }
 
     /// Calculates `(NOT a) AND (NOT b)`.
-    pub fn nor<E, CS>(mut cs: CS, a: &Self, b: &Self) -> Result<Self, SynthesisError>
+    pub fn nor<E, CS>(mut cs: CS, a: &Self, b: &Self) -> Result<Self>
     where
         E: Engine,
         CS: ConstraintSystem<E>,
@@ -278,7 +274,7 @@ impl AllocatedBit {
 pub fn u64_into_boolean_vec_le<E: Engine, CS: ConstraintSystem<E>>(
     mut cs: CS,
     value: Option<u64>,
-) -> Result<Vec<Boolean>, SynthesisError> {
+) -> Result<Vec<Boolean>> {
     let values = match value {
         Some(ref value) => {
             let mut tmp = Vec::with_capacity(64);
@@ -301,7 +297,7 @@ pub fn u64_into_boolean_vec_le<E: Engine, CS: ConstraintSystem<E>>(
                 b,
             )?))
         })
-        .collect::<Result<Vec<_>, SynthesisError>>()?;
+        .collect::<Result<Vec<_>>>()?;
 
     Ok(bits)
 }
@@ -309,7 +305,7 @@ pub fn u64_into_boolean_vec_le<E: Engine, CS: ConstraintSystem<E>>(
 pub fn field_into_boolean_vec_le<E: Engine, CS: ConstraintSystem<E>, F: PrimeField>(
     cs: CS,
     value: Option<F>,
-) -> Result<Vec<Boolean>, SynthesisError> {
+) -> Result<Vec<Boolean>> {
     let v = field_into_allocated_bits_le::<E, CS, F>(cs, value)?;
 
     Ok(v.into_iter().map(|e| Boolean::from(e)).collect())
@@ -318,7 +314,7 @@ pub fn field_into_boolean_vec_le<E: Engine, CS: ConstraintSystem<E>, F: PrimeFie
 pub fn field_into_allocated_bits_le<E: Engine, CS: ConstraintSystem<E>, F: PrimeField>(
     mut cs: CS,
     value: Option<F>,
-) -> Result<Vec<AllocatedBit>, SynthesisError> {
+) -> Result<Vec<AllocatedBit>> {
     // Deconstruct in big-endian bit order
     let values = match value {
         Some(ref value) => {
@@ -350,7 +346,7 @@ pub fn field_into_allocated_bits_le<E: Engine, CS: ConstraintSystem<E>, F: Prime
         .rev()
         .enumerate()
         .map(|(i, b)| AllocatedBit::alloc(cs.namespace(|| format!("bit {}", i)), b))
-        .collect::<Result<Vec<_>, SynthesisError>>()?;
+        .collect::<Result<Vec<_>>>()?;
 
     Ok(bits)
 }
@@ -375,7 +371,7 @@ impl Boolean {
         }
     }
 
-    pub fn enforce_equal<E, CS>(mut cs: CS, a: &Self, b: &Self) -> Result<(), SynthesisError>
+    pub fn enforce_equal<E, CS>(mut cs: CS, a: &Self, b: &Self) -> Result<()>
     where
         E: Engine,
         CS: ConstraintSystem<E>,
@@ -460,7 +456,7 @@ impl Boolean {
     }
 
     /// Perform XOR over two boolean operands
-    pub fn xor<'a, E, CS>(cs: CS, a: &'a Self, b: &'a Self) -> Result<Self, SynthesisError>
+    pub fn xor<'a, E, CS>(cs: CS, a: &'a Self, b: &'a Self) -> Result<Self>
     where
         E: Engine,
         CS: ConstraintSystem<E>,
@@ -482,7 +478,7 @@ impl Boolean {
     }
 
     /// Perform AND over two boolean operands
-    pub fn and<'a, E, CS>(cs: CS, a: &'a Self, b: &'a Self) -> Result<Self, SynthesisError>
+    pub fn and<'a, E, CS>(cs: CS, a: &'a Self, b: &'a Self) -> Result<Self>
     where
         E: Engine,
         CS: ConstraintSystem<E>,
@@ -516,7 +512,7 @@ impl Boolean {
         a: &'a Self,
         b: &'a Self,
         c: &'a Self,
-    ) -> Result<Self, SynthesisError>
+    ) -> Result<Self>
     where
         E: Engine,
         CS: ConstraintSystem<E>,
@@ -627,7 +623,7 @@ impl Boolean {
         a: &'a Self,
         b: &'a Self,
         c: &'a Self,
-    ) -> Result<Self, SynthesisError>
+    ) -> Result<Self>
     where
         E: Engine,
         CS: ConstraintSystem<E>,

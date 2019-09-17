@@ -5,32 +5,30 @@ use pairing::Engine;
 
 use crate::domain::Domain;
 use crate::arith::Scalar;
-use super::{PolynomialEvaluation, Worker, AssignmentField, Result};
+use super::{PolynomialEvaluation, AssignmentField, Result};
 
-pub fn evaluate_coefficients<E>(eval: &mut PolynomialEvaluation<E>, worker: &Worker) -> Result<AssignmentField<E>>
+pub fn evaluate_coefficients<E>(eval: &mut PolynomialEvaluation<E>) -> Result<AssignmentField<E>>
 where
     E: Engine
 {
-    let fourier_eval_domain: _ = FourierEvaluationDomain::new(eval, worker)?;
+    let fourier_eval_domain: _ = FourierEvaluationDomain::new(eval)?;
     fourier_eval_domain.coeffs_by_fft()
 }
 
-// fn into_domains(eval: &'a mut PolynomialEvaluation<E>, worker: &'a Worker) 
-
-struct FourierEvaluationDomain<'a, E: Engine> {
-    a: Domain<'a,E,Scalar<E>>,
-    b: Domain<'a,E,Scalar<E>>,
-    c: Domain<'a,E,Scalar<E>>,
+struct FourierEvaluationDomain<E: Engine> {
+    a: Domain<E,Scalar<E>>,
+    b: Domain<E,Scalar<E>>,
+    c: Domain<E,Scalar<E>>,
 }
 
-impl<'a,E> FourierEvaluationDomain<'a,E> 
+impl<E> FourierEvaluationDomain<E> 
 where
     E: Engine
 {
-    fn new(eval: &'a mut PolynomialEvaluation<E>, worker: &'a Worker) -> Result<Self> {
-        let a = Domain::new(eval.a.take()?, worker)?;
-        let b = Domain::new(eval.b.take()?, worker)?;
-        let c = Domain::new(eval.c.take()?, worker)?;
+    fn new(eval: &mut PolynomialEvaluation<E>) -> Result<Self> {
+        let a = Domain::new(eval.a.take()?)?;
+        let b = Domain::new(eval.b.take()?)?;
+        let c = Domain::new(eval.c.take()?)?;
         Ok(FourierEvaluationDomain {a, b, c})
     }
 

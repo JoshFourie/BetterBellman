@@ -11,7 +11,6 @@ use ff::{Field, PrimeField};
 use pairing::Engine;
 
 use crate::multiexp::{multiexp, FullDensity};
-use crate::multicore::Worker;
 use crate::groth16::VerifyingKey;
 use group::{CurveAffine, CurveProjective};
 
@@ -33,19 +32,15 @@ where
     where
         P: ParameterSource<E>
     {
-        let worker: _ = Worker::new();
-
-        let vk: _ = try_vk(params)?;
-
-        let h: _ = try_h(&mut prover.eval, &worker, params)?;
-
-        let (input, aux): _ = into_primefield(prover.assignment);
-
-        let l = try_l(&aux, &worker, params)?;
+        let vk: VerifyingKey<E> = try_vk(params)?;
+        let h: _ = try_h(&mut prover.eval, params)?;
+        
+        let (input, aux): (AssignmentField<E>, AssignmentField<E>) = into_primefield(prover.assignment);
+        let l: _ = try_l(&aux, params)?;
 
         let mut src: _ = source::Source::try_new(prover.density, input.len(), params)?;
-        let answer: _ = src.into_answer(&worker, input)?;
-        let aux: _ = src.into_auxiliary(&worker, aux)?;
+        let answer: _ = src.into_answer(input)?;
+        let aux: _ = src.into_auxiliary(aux)?;
 
         let builder: _ = Self {
             vk,
@@ -134,27 +129,22 @@ where
     (input, aux)
 }
 
-fn try_h<E,P>(eval: &mut PolynomialEvaluation<E>, worker: &Worker, params: &mut P) -> Result<impl Future<Item=E::G1, Error=SynthesisError>>
+fn try_h<E,P>(eval: &mut PolynomialEvaluation<E>, params: &mut P) -> Result<impl Future<Item=E::G1, Error=SynthesisError>>
 where
     E: Engine,
     P: ParameterSource<E>
 {
-    let linear_coeffs: _ = fourier::evaluate_coefficients(eval, worker)?;
-    let multi_exponentiated_coeffs: _ = multiexp(&worker, params.get_h()?, FullDensity, linear_coeffs);
+    let linear_coeffs: _ = fourier::evaluate_coefficients(eval)?;
+    let multi_exponentiated_coeffs: _ = multiexp(params.get_h()?, FullDensity, linear_coeffs);
     Ok(multi_exponentiated_coeffs)
 }
 
-fn try_l<E,P>(aux: &AssignmentField<E>, worker: &Worker, params: &mut P) -> Result<impl Future<Item=E::G1, Error=SynthesisError>> 
+fn try_l<E,P>(aux: &AssignmentField<E>, params: &mut P) -> Result<impl Future<Item=E::G1, Error=SynthesisError>> 
 where
     E: Engine,
     P: ParameterSource<E>
 {
-    let l: _ = multiexp(
-        &worker,
-        params.get_l()?,
-        FullDensity,
-        aux.clone(),
-    );
+    let l: _ = multiexp(params.get_l()?, FullDensity, aux.clone());
     Ok(l)
 }
 

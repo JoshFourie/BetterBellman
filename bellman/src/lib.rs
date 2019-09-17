@@ -21,6 +21,8 @@ pub mod gadgets;
 pub mod error;
 pub mod namespace;
 pub mod constraint;
+
+#[macro_export]
 pub mod multicore;
 
 pub use error::{Result, SynthesisError};

@@ -2,9 +2,8 @@ use pairing::Engine;
 use group::{Wnaf, CurveProjective, CurveAffine};
 use ff::{Field, PrimeField};
 
-use crate::{multicore, error, arith, domain, groth16};
+use crate::{error, arith, domain, groth16, multi_thread};
 use crate::Circuit;
-use multicore::Worker;
 use error::{SynthesisError, Result};
 use arith::Scalar;
 use domain::Domain;
@@ -15,7 +14,7 @@ use eval::EvaluationWriter;
 use key_pair::KeyPairAssembly;
 use windows::BasedWindowTables;
 
-pub struct ParameterAssembly<'a,E,C> 
+pub struct ParameterAssembly<E,C> 
 where
     E: Engine
 {
@@ -28,11 +27,10 @@ where
     delta: E::Fr,
     tau: E::Fr,
     delta_inv: E::Fr,
-    gamma_inv: E::Fr,
-    worker: &'a Worker
+    gamma_inv: E::Fr
 }
 
-impl<'a,E,C> ParameterAssembly<'a,E,C> 
+impl<E,C> ParameterAssembly<E,C> 
 where
     E: Engine,
     C: Circuit<E>
@@ -45,8 +43,7 @@ where
         beta: E::Fr, 
         gamma: E::Fr,
         delta: E::Fr, 
-        tau: E::Fr, 
-        worker: &'a Worker
+        tau: E::Fr
     ) -> Result<Self> {
         
         let gamma_inv: E::Fr = gamma.inverse().ok_or(SynthesisError::UnexpectedIdentity)?;
@@ -62,8 +59,7 @@ where
             delta,
             tau,
             delta_inv,
-            gamma_inv,
-            worker
+            gamma_inv
         })
     }
 
@@ -75,13 +71,13 @@ where
         Ok(key_assembly)
     }
 
-    pub fn compute_h(&mut self, domain: &mut Domain<E, Scalar<E>>, based_g1: &Wnaf<usize, &[E::G1], &mut Vec<i64>>, worker: &Worker) -> Result<Vec<E::G1Affine>> {   
-        into_powers_of_tau(domain, &self.tau, worker);
+    pub fn compute_h(&mut self, domain: &mut Domain<E, Scalar<E>>, based_g1: &Wnaf<usize, &[E::G1], &mut Vec<i64>>) -> Result<Vec<E::G1Affine>> {   
+        into_powers_of_tau(domain, &self.tau);
         let mut h: Vec<E::G1> = vec![E::G1::zero(); domain.as_ref().len() - 1];
         // Set coeff := t(x)/delta
         let tau_delta: _ = self.set_tau_over_delta(domain)?;
         // Set values of the H query to g1^{(tau^i * t(tau)) / delta}
-        set_tau_and_exponentiate_g1_into_h(&mut h, domain.as_ref(), based_g1, &tau_delta, worker);
+        set_tau_and_exponentiate_g1_into_h(&mut h, domain.as_ref(), based_g1, &tau_delta);
 
         let into_affine: Vec<_> = h.into_iter()
             .map(|e| e.into_affine())
@@ -133,8 +129,7 @@ where
             ic,
             &self.gamma_inv,
             &self.alpha,
-            &self.beta,
-            self.worker,
+            &self.beta
         );
     }
 
@@ -158,8 +153,7 @@ where
             &mut writer.l,
             &self.delta_inv,
             &self.alpha,
-            &self.beta,
-            self.worker,
+            &self.beta
         );
     }
 
@@ -194,25 +188,20 @@ where
     }
 }
 
-pub fn into_powers_of_tau<E>(domain: &mut Domain<E,Scalar<E>>, tau: &E::Fr, worker: &Worker)
+pub fn into_powers_of_tau<E>(domain: &mut Domain<E,Scalar<E>>, tau: &E::Fr)
 where
     E: Engine
 {
     let powers: &mut [Scalar<E>] = domain.as_mut();
+    multi_thread!(powers.len(), chunk::init() => {
+        for (i, chunk_of_powers) in powers.chunks_mut(chunk).enumerate() => {
+            let idx: _ = (i * chunk) as u64;
+            let mut new = tau.pow(&[idx]);
 
-    worker.scope(powers.len(), |scope,chunk| {
-        for (i, chunk_of_powers) in powers.chunks_mut(chunk)
-            .enumerate()
-        {
-            scope.spawn(move || {
-                let idx: _ = (i * chunk) as u64;
-                let mut new = tau.pow(&[idx]);
-
-                for power in chunk_of_powers {
-                    *power = Scalar(new);
-                    new.mul_assign(&tau)
-                }
-            });
+            for power in chunk_of_powers {
+                *power = Scalar(new);
+                new.mul_assign(&tau)
+            }
         }
     });
 }
@@ -230,27 +219,24 @@ fn set_tau_and_exponentiate_g1_into_h<E: Engine>(
     domain: &[Scalar<E>], 
     based_g1: &Wnaf<usize, &[E::G1], &mut Vec<i64>>, 
     tau_delta: &E::Fr, 
-    worker: &Worker
 ) {
-    worker.scope(h.len(), |scope, chunk_size| {
+    multi_thread!(h.len(), chunk_size::init() => {
         for (chunk_of_h, chunk_of_powers) in h
             .chunks_mut(chunk_size)
             .zip(domain.as_ref().chunks(chunk_size))
-        {
-            let mut g1_wnaf = based_g1.shared();
+        => {
+            let mut g1_wnaf: _ = based_g1.shared();
+        
+            for (value, power) in chunk_of_h.iter_mut()
+                .zip(chunk_of_powers.iter()) 
+            {
+                let exponent: <E::Fr as PrimeField>::Repr = raise_tau_delta_to_exponent(power, &tau_delta).into_repr();
 
-            scope.spawn(move || {
-                for (value, power) in chunk_of_h.iter_mut()
-                    .zip(chunk_of_powers.iter()) 
-                {
-                    let exponent: <E::Fr as PrimeField>::Repr = raise_tau_delta_to_exponent(power, &tau_delta).into_repr();
+                // Exponentiate
+                *value = g1_wnaf.scalar(exponent);
+            }
 
-                    // Exponentiate
-                    *value = g1_wnaf.scalar(exponent);
-                }
-
-                E::G1::batch_normalization(chunk_of_h);
-            });
+            E::G1::batch_normalization(chunk_of_h);
         }
     });
 }

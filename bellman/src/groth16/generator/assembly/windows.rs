@@ -31,7 +31,7 @@ impl<E> WindowTables<E>
 where
     E: Engine
 {
-    pub fn as_based<'a,C,G>(&'a mut self, kp: &KeyPairAssembly<E>, param: &ParameterAssembly<'a,E,C>, dom: &Domain<'a,E,G>) -> BasedWindowTables<'a,E> 
+    pub fn as_based<'a,C,G>(&'a mut self, kp: &KeyPairAssembly<E>, param: &ParameterAssembly<E,C>, dom: &Domain<E,G>) -> BasedWindowTables<'a,E> 
     where
         G: Group<'a,E>
     {
@@ -52,7 +52,7 @@ impl<'a,E> BasedWindowTables<'a,E>
 where
     E: Engine,
 {
-    fn new<C>(wind: &'a mut WindowTables<E>, kp: &KeyPairAssembly<E>, param: &ParameterAssembly<'a,E,C>, domain_size: usize) -> Self {
+    fn new<C>(wind: &'a mut WindowTables<E>, kp: &KeyPairAssembly<E>, param: &ParameterAssembly<E,C>, domain_size: usize) -> Self {
 
         let (g1_query, g2_query): _ = get_queries(kp, domain_size);
 

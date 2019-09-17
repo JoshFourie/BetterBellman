@@ -2,9 +2,7 @@ use std::sync::Arc;
 use pairing::Engine;
 
 use super::{ParameterSource, QueryDensity, AssignmentField, Result, source, context};
-
 use crate::multiexp::DensityTracker;
-use crate::multicore::Worker;
 
 pub struct Source<P: ParameterSource<E>, E: Engine> {
     answer: Option<source::Answer<P,E>>,
@@ -48,20 +46,12 @@ where
         })
     }        
 
-    pub fn into_answer(&mut self, worker: &Worker, input: AssignmentField<E>) -> Result<context::Answer<E>> {
-        context::Answer::try_new(
-            worker, 
-            self.answer.take()?, 
-            input
-        )
+    pub fn into_answer(&mut self, input: AssignmentField<E>) -> Result<context::Answer<E>> {
+        context::Answer::try_new(self.answer.take()?, input)
     }
 
-    pub fn into_auxiliary(&mut self, worker: &Worker, aux: AssignmentField<E>) -> Result<context::Auxiliary<E>> {
-        context::Auxiliary::try_new(
-            worker,
-            self.aux.take()?, 
-            aux
-        )
+    pub fn into_auxiliary(&mut self, aux: AssignmentField<E>) -> Result<context::Auxiliary<E>> {
+        context::Auxiliary::try_new(self.aux.take()?, aux)
     }
 }
 
