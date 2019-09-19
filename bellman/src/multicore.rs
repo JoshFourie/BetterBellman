@@ -47,29 +47,29 @@ macro_rules! multi_thread {
         });
     };    
 
-    ($elements:expr, iter($lhs:expr) => {
-        for $value:tt in $iter_id:ident => 
-            $code_block:block 
-    }) => {
-        multi_thread!($elements, chunk_ident!(chunks) => {
-            for chunk in $lhs.chunks_mut(chunks) => {
-                for $value in chunk.iter_mut() { 
-                    $code_block   
-                }
-            }
-        });
-    }; 
+    // ($elements:expr, iter($lhs:expr) => {
+    //     for $value:tt in $iter_id:ident => 
+    //         $code_block:block 
+    // }) => {
+    //     multi_thread!($elements, chunk_ident!(chunks) => {
+    //         for chunk in $lhs.chunks_mut(chunks) => {
+    //             for $value in chunk.iter_mut() { 
+    //                 $code_block   
+    //             }
+    //         }
+    //     });
+    // }; 
 
-    ($elements:expr, iter($first:expr, $($zipped:expr),+) => {
-        for $value:tt in ($first_id:ident, $($zipped_id:ident),+) => 
+    ($elements:expr, iter($first:expr $(, $zipped:expr )? ) => {
+        for $value:tt in $first_id:ident $(, $zipped_id:ident )?  => 
             $code_block:block 
     }) => {
         crate::multicore::MULTI_THREAD.scope($elements, |scope, chunk_size| {
-            for ($first_id, $($zipped_id),+) in $first.chunks_mut(chunk_size)
-                $(.zip($zipped.chunks(chunk_size)))+
+            for ($first_id $(, $zipped_id)? ) in $first.chunks_mut(chunk_size)
+                $( .zip($zipped.chunks(chunk_size)) )?
             {
                 for $value in $first_id.iter_mut()
-                    $(.zip($zipped_id))+  
+                    $( .zip($zipped_id) )?
                 {
                     scope.spawn(move || {
                         $code_block
@@ -77,50 +77,45 @@ macro_rules! multi_thread {
                 }
             }
         });
+    }; 
 
-        // multi_thread!($elements, chunk_ident!(chunk_size) => {
-        //     for ($first_id, $($zipped_id),+) in $first.chunks_mut(chunk_size)
-        //         $(.zip($zipped.chunks(chunk_size)))+
-        //      => {
-        //         for $value in $first_id.iter_mut()
-        //             $(.zip($zipped_id))+ 
-        //         { 
-        //             $code_block   
-        //         }
-        //     }
-        // });
+    ($elements:expr, iter($first:expr $(, $zipped:expr )? ) => {
+        for $value:tt in $first_id:ident $(, $zipped_id:ident )?  => 
+            $code_block:block 
+    }) => {
+        crate::multicore::MULTI_THREAD.scope($elements, |scope, chunk_size| {
+            for ($first_id $(, $zipped_id)? ) in $first.chunks_mut(chunk_size)
+                $( .zip($zipped.chunks(chunk_size)) )?
+            {
+                $( $chunk_op )+
+                for $value in $first_id.iter_mut()
+                    $( .zip($zipped_id) )?
+                {
+                    scope.spawn(move || {
+                        $code_block
+                    });
+                }
+            }
+        });
     }; 
 
     ($elements:expr, enumerate($iter:expr) => {
         for ($idx:ident, $value:tt) in $iter_id:ident => 
             $code_block:block 
     }) => {
-        multi_thread!($elements, chunk_ident!(chunk_size) => {
-            for (_i, iter) in $iter.chunks_mut(chunk_size).enumerate() => {
+        crate::multicore::MULTI_THREAD.scope($elements, |scope, chunk_size| {
+            for (_i, iter) in $iter.chunks_mut(chunk_size)
+                .enumerate() 
+            {
                 for (mut $idx, $value) in iter.iter_mut().enumerate() { 
                     $idx += _i * chunk_size;
-                    $code_block   
+                    scope.spawn(move || {
+                        $code_block
+                    });
                 }
             }
         });
     }; 
-
-    // ($elements:expr, enumerate($iter:expr, $($zipped:expr),*) => {
-    //     for ($idx:ident, $value:tt) in ($iter_id:ident, $($zipped_id:ident),*) => 
-    //         $code_block:block 
-    // }) => {
-    //     multi_thread!($elements, chunk_ident!(chunk_size) => {
-    //         for (_i, iter, $($zipped_id),*) in $iter.chunks_mut(chunk_size)
-    //             .enumerate()
-    //             $(.zip($zipped.chunks(chunk_size)))+
-    //         => {
-    //             for (mut $idx, $value) in iter.iter_mut().enumerate() { 
-    //                 $idx += _i * chunk_size;
-    //                 $code_block   
-    //             }
-    //         }
-    //     });
-    // }; 
 }
 
 #[cfg(feature = "multicore")]

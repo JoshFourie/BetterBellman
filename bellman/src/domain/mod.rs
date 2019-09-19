@@ -174,7 +174,7 @@ where
         assert_eq!(self.coeffs.len(), rhs.coeffs.len());
 
         multi_thread!(self.coeffs.len(), iter(self.coeffs, rhs.coeffs) => {
-            for (l,r) in (lhs_coeffs, rhs_coeffs) => {
+            for (l,r) in lhs_coeffs, rhs_coeffs => {
                 *l -= &r
             }
         });
@@ -190,7 +190,7 @@ where
         assert_eq!(self.coeffs.len(), rhs.coeffs.len());
 
         multi_thread!(self.coeffs.len(), iter(self.coeffs, rhs.coeffs) => {
-            for (l,r) in (lhs_coeffs, rhs_coeffs) => {
+            for (l,r) in lhs_coeffs, rhs_coeffs => {
                 *l *= &r.0
             }
         });

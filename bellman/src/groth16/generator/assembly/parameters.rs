@@ -193,15 +193,9 @@ where
     E: Engine
 {
     let powers: &mut [Scalar<E>] = domain.as_mut();
-    multi_thread!(powers.len(), chunk::init() => {
-        for (i, chunk_of_powers) in powers.chunks_mut(chunk).enumerate() => {
-            let idx: _ = (i * chunk) as u64;
-            let mut new = tau.pow(&[idx]);
-
-            for power in chunk_of_powers {
-                *power = Scalar(new);
-                new.mul_assign(&tau)
-            }
+    multi_thread!(powers.len(), enumerate(powers) => {
+        for (i, power) in powers => {
+            *power = Scalar(tau.pow(&[i as u64]))
         }
     });
 }
@@ -220,25 +214,15 @@ fn set_tau_and_exponentiate_g1_into_h<E: Engine>(
     based_g1: &Wnaf<usize, &[E::G1], &mut Vec<i64>>, 
     tau_delta: &E::Fr, 
 ) {
-    multi_thread!(h.len(), chunk_size::init() => {
-        for (chunk_of_h, chunk_of_powers) in h
-            .chunks_mut(chunk_size)
-            .zip(domain.as_ref().chunks(chunk_size))
-        => {
-            let mut g1_wnaf: _ = based_g1.shared();
-        
-            for (value, power) in chunk_of_h.iter_mut()
-                .zip(chunk_of_powers.iter()) 
-            {
-                let exponent: <E::Fr as PrimeField>::Repr = raise_tau_delta_to_exponent(power, &tau_delta).into_repr();
-
-                // Exponentiate
-                *value = g1_wnaf.scalar(exponent);
-            }
-
-            E::G1::batch_normalization(chunk_of_h);
+    multi_thread!(h.len(), iter(h, domain.as_ref()) => {
+        for (value, power) in h_iter, domain_iter => {
+            let mut g1_wnaf: _ = based_g1.shared();  
+            let exponent: <E::Fr as PrimeField>::Repr = raise_tau_delta_to_exponent(power, &tau_delta).into_repr();
+            *value = g1_wnaf.scalar(exponent);
         }
     });
+    E::G1::batch_normalization(h);
+
 }
 
 fn raise_tau_delta_to_exponent<E: Engine>(power: &Scalar<E>, tau_delta: &E::Fr) -> E::Fr {
