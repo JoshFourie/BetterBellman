@@ -116,23 +116,17 @@ where
 
         let coeff_len: usize = self.coeffs.len();
         let mul_inv: E::Fr = self.minv;
-        multi_thread!(coeff_len, chunk::init() => {
-            for v in self.coeffs.chunks_mut(chunk) => {
-                for v in v {
-                    *v *= &mul_inv;
-                }
+        multi_thread!(coeff_len, iter(self.coeffs) => {
+            for v in iter => {
+                *v *= &mul_inv;
             }
         });
     }
 
     pub fn distribute_powers(&mut self, g: E::Fr) {
-        multi_thread!(self.coeffs.len(), chunk::init() => {
-            for (i, v) in self.coeffs.chunks_mut(chunk).enumerate() => {
-                let mut u = g.pow(&[(i * chunk) as u64]);
-                for v in v.iter_mut() {
-                    *v *= &u;
-                    u.mul_assign(&g);
-                }
+        multi_thread!(self.coeffs.len(), enumerate(self.coeffs) => {
+            for (i, v) in coeffs => {
+                *v *= &g.pow(&[i as u64]);
             }
         });
     }
@@ -159,13 +153,11 @@ where
     pub fn divide_over_coset(&mut self) -> Result<()> {
         let mut tau: _ = E::Fr::multiplicative_generator();
         self.raise_tau_to_size(&mut tau);
-        let i: E::Fr = tau.inverse()?;
+        let tau_inv: E::Fr = tau.inverse()?;
         
-        multi_thread!(self.coeffs.len(), chunk::init() => {
-            for v in self.coeffs.chunks_mut(chunk) => {    
-                for v in v {
-                    *v *= &i;
-                }
+        multi_thread!(self.coeffs.len(), iter(self.coeffs) => {
+            for val in coeffs => {
+                *val *= &tau_inv
             }
         });
 
@@ -180,16 +172,10 @@ where
 {
     fn sub_assign(&mut self, rhs: &'a Self) {
         assert_eq!(self.coeffs.len(), rhs.coeffs.len());
-        multi_thread!(self.coeffs.len(), chunk::init() => {
-            for (lhs, rhs) in self.coeffs
-                    .chunks_mut(chunk)
-                    .zip(rhs.coeffs.chunks(chunk))
-            => {
-                for (l,r) in lhs.iter_mut()
-                    .zip(rhs.iter()) 
-                {
-                    *l -= &r;
-                }
+
+        multi_thread!(self.coeffs.len(), iter(self.coeffs, rhs.coeffs) => {
+            for (l,r) in (lhs_coeffs, rhs_coeffs) => {
+                *l -= &r
             }
         });
     }
@@ -203,16 +189,9 @@ where
     fn mul_assign(&mut self, rhs: &'a Domain<E,Scalar<E>>) {
         assert_eq!(self.coeffs.len(), rhs.coeffs.len());
 
-        multi_thread!(self.coeffs.len(), chunk::init() => {
-            for (lhs, rhs) in self.coeffs
-                    .chunks_mut(chunk)
-                    .zip(rhs.coeffs.chunks(chunk))
-            => {
-                for (l,r) in lhs.iter_mut()
-                    .zip(rhs.iter()) 
-                {
-                    *l *= &r.0;
-                }
+        multi_thread!(self.coeffs.len(), iter(self.coeffs, rhs.coeffs) => {
+            for (l,r) in (lhs_coeffs, rhs_coeffs) => {
+                *l *= &r.0
             }
         });
     }       

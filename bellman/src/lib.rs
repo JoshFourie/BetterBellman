@@ -1,4 +1,5 @@
 #![feature(try_trait)]
+#![feature(concat_idents)]
 
 #[cfg(feature = "multicore")]
 extern crate crossbeam;

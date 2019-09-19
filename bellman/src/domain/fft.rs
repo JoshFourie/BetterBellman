@@ -73,8 +73,8 @@ where
     let new_omega = omega.pow(&[num_cpus as u64]);
 
     let ref_a: &_ = a; 
-    multi_thread!(0 => {
-        for (j, tmp) in tmp.iter_mut().enumerate() => {
+    multi_thread!(tmp.len(), enumerate(tmp) => {
+        for (j, tmp) in iter => {
             // Shuffle into a sub-FFT
             let omega_j: _ = omega.pow(&[j as u64]);
             let omega_step: _ = omega.pow(&[(j as u64) << log_new_n]);
@@ -96,16 +96,13 @@ where
         }
     });
 
-    let tmp: _ = &tmp;
-    multi_thread!(a.len(), chunk::init() => {
-        for (idx, a) in a.chunks_mut(chunk).enumerate() => {
-            let mut idx = idx * chunk;
-            let mask = (1 << log_cpus) - 1;
-            for a in a {
-                *a = tmp[idx & mask][idx >> log_cpus];
-                idx += 1;
-            }
-        }
+    let tmp: &[_] = &tmp;
+    let mask: _ = (1 << log_cpus) - 1;
+    multi_thread!(a.len(), enumerate(a) => {
+        for (i, val) in a => {
+            let idx: usize = (i as u32 & mask) as usize;
+            *val = tmp[idx][i >> log_cpus]
+        } 
     });
 }
 
