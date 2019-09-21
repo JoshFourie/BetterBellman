@@ -113,7 +113,6 @@ where
 
     pub fn ifft(&mut self) {
         fft::run_optimal_fft(&mut self.coeffs, &self.omegainv, self.exp);
-
         let coeff_len: usize = self.coeffs.len();
         let mul_inv: E::Fr = self.minv;
         multi_thread!(coeff_len, iter(self.coeffs) => {

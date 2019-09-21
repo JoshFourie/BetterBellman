@@ -1,30 +1,20 @@
 use ff::{Field, PrimeField};
-use group::{CurveProjective, Wnaf};
+use group::CurveProjective;
 use pairing::Engine;
 
-use crate::{arith, multi_thread};
+use crate::{arith, error, multi_thread};
 use arith::Scalar;
+use error::Result;
 
-use super::key_pair::KeyPairAssembly;
+use super::{key_pair, windows};
+use key_pair::{KeyPairAssembly, KeyPairWires};
+use windows::BasedWindowTables;
 
 pub fn eval<E: Engine>(
-    // wNAF window tables
-    g1_wnaf: &Wnaf<usize, &[E::G1], &mut Vec<i64>>,
-    g2_wnaf: &Wnaf<usize, &[E::G2], &mut Vec<i64>>,
-
-    // Lagrange coefficients for tau
-    powers_of_tau: &[Scalar<E>],
-
-    // QAP polynomials
-    at: &[Vec<(E::Fr, usize)>],
-    bt: &[Vec<(E::Fr, usize)>],
-    ct: &[Vec<(E::Fr, usize)>],
-
-    // Resulting evaluated QAP polynomials
-    a: &mut [E::G1],
-    b_g1: &mut [E::G1],
-    b_g2: &mut [E::G2],
-    ext: &mut [E::G1],
+    wnaf: &BasedWindowTables<'_,E>,
+    lagrange_coeffs: &[Scalar<E>],
+    qap_polynomials: &KeyPairWires<E>,
+    writer: EvaluationWriter<'_,E>,
 
     // Inverse coefficient for ext elements
     inv: &E::Fr,
@@ -34,88 +24,81 @@ pub fn eval<E: Engine>(
     beta: &E::Fr,
 ) {
     // Sanity check
-    assert_eq!(a.len(), at.len());
-    assert_eq!(a.len(), bt.len());
-    assert_eq!(a.len(), ct.len());
-    assert_eq!(a.len(), b_g1.len());
-    assert_eq!(a.len(), b_g2.len());
-    assert_eq!(a.len(), ext.len());
+    assert_eq!(writer.a.len(), qap_polynomials.at.len());
+    assert_eq!(writer.a.len(), qap_polynomials.bt.len());
+    assert_eq!(writer.a.len(), qap_polynomials.ct.len());
+    assert_eq!(writer.a.len(), writer.b_g1.len());
+    assert_eq!(writer.a.len(), writer.b_g2.len());
+    assert_eq!(writer.a.len(), writer.ext.len());
 
-    multi_thread!(a.len(), chunk_ident!(chunk) => {
-        for ((((((a, b_g1), b_g2), ext), at), bt), ct) in a
-            .chunks_mut(chunk)
-            .zip(b_g1.chunks_mut(chunk))
-            .zip(b_g2.chunks_mut(chunk))
-            .zip(ext.chunks_mut(chunk))
-            .zip(at.chunks(chunk))
-            .zip(bt.chunks(chunk))
-            .zip(ct.chunks(chunk))
-        => {
-            let mut g1_wnaf = g1_wnaf.shared();
-            let mut g2_wnaf = g2_wnaf.shared();
+    let coeff_len: usize = writer.a.len();
+    let mut flat_writer: FlatEvaluationWriter<E> = writer.flatten();
 
-            for ((((((a, b_g1), b_g2), ext), at), bt), ct) in a
-                    .iter_mut()
-                    .zip(b_g1.iter_mut())
-                    .zip(b_g2.iter_mut())
-                    .zip(ext.iter_mut())
-                    .zip(at.iter())
-                    .zip(bt.iter())
-                    .zip(ct.iter())
-                {
-                    fn eval_at_tau<E: Engine>(
-                        powers_of_tau: &[Scalar<E>],
-                        p: &[(E::Fr, usize)],
-                    ) -> E::Fr {
-                        let mut acc = E::Fr::zero();
+    multi_thread!(coeff_len, iter(flat_writer) => {
+        for (a, b_g1, b_g2, ext) in iter => {
 
-                        for &(ref coeff, index) in p {
-                            let mut n = powers_of_tau[index].0;
-                            n.mul_assign(coeff);
-                            acc.add_assign(&n);
-                        }
-
-                        acc
-                    }
-
-                    // Evaluate QAP polynomials at tau
-                    let mut at = eval_at_tau(powers_of_tau, at);
-                    let mut bt = eval_at_tau(powers_of_tau, bt);
-                    let ct = eval_at_tau(powers_of_tau, ct);
-
-                    // Compute A query (in G1)
-                    if !at.is_zero() {
-                        *a = g1_wnaf.scalar(at.into_repr());
-                    }
-
-                    // Compute B query (in G1/G2)
-                    if !bt.is_zero() {
-                        let bt_repr = bt.into_repr();
-                        *b_g1 = g1_wnaf.scalar(bt_repr);
-                        *b_g2 = g2_wnaf.scalar(bt_repr);
-                    }
-
-                    at.mul_assign(&beta);
-                    bt.mul_assign(&alpha);
-
-                    let mut e = at;
-                    e.add_assign(&bt);
-                    e.add_assign(&ct);
-                    e.mul_assign(inv);
-
-                    *ext = g1_wnaf.scalar(e.into_repr());
-                }
-
-            // Batch normalize
-            E::G1::batch_normalization(a);
-            E::G1::batch_normalization(b_g1);
-            E::G2::batch_normalization(b_g2);
-            E::G1::batch_normalization(ext);
         }
     });
+
+    // multi_thread!(writer.a.len(), iter(writer, qap_polynomials) => {
+    //     for ((a, b_g1, b_g2, ext), (at, bt, ct)) in writer_chunk, qap_polynomials_chunks => {
+
+    //         let mut g1_wnaf = wnaf.g1.shared();
+    //         let mut g2_wnaf = wnaf.g2.shared();
+
+    //         fn eval_at_tau<E: Engine>(
+    //             powers_of_tau: &[Scalar<E>],
+    //             p: &[(E::Fr, usize)],
+    //         ) -> E::Fr {
+    //             let mut acc = E::Fr::zero();
+
+    //             for &(ref coeff, index) in p {
+    //                 let mut n = powers_of_tau[index].0;
+    //                 n.mul_assign(coeff);
+    //                 acc.add_assign(&n);
+    //             }
+
+    //             acc
+    //         }
+
+    //         // Evaluate QAP polynomials at tau
+    //         let mut at = eval_at_tau(lagrange_coeffs, at);
+    //         let mut bt = eval_at_tau(lagrange_coeffs, bt);
+    //         let ct = eval_at_tau(lagrange_coeffs, ct);
+
+    //         // Compute A query (in G1)
+    //         if !at.is_zero() {
+    //             *a = g1_wnaf.scalar(at.into_repr());
+    //         }
+
+    //         // Compute B query (in G1/G2)
+    //         if !bt.is_zero() {
+    //             let bt_repr = bt.into_repr();
+    //             *b_g1 = g1_wnaf.scalar(bt_repr);
+    //             *b_g2 = g2_wnaf.scalar(bt_repr);
+    //         }
+
+    //         at.mul_assign(&beta);
+    //         bt.mul_assign(&alpha);
+
+    //         let mut e = at;
+    //         e.add_assign(&bt);
+    //         e.add_assign(&ct);
+    //         e.mul_assign(inv);
+
+    //         *ext = g1_wnaf.scalar(e.into_repr());
+
+    //         // Batch normalize
+    //         // E::G1::batch_normalization(a);
+    //         // E::G1::batch_normalization(b_g1);
+    //         // E::G2::batch_normalization(b_g2);
+    //         // E::G1::batch_normalization(ext);
+    //     }
+    // });
+    unimplemented!()
 }
 
-pub struct EvaluationWriter<E>
+pub struct WireEvaluation<E>
 where
     E: Engine
 {
@@ -126,24 +109,42 @@ where
     pub l: Vec<E::G1>
 }
 
-impl<E> EvaluationWriter<E> 
+impl<E> WireEvaluation<E> 
 where
     E: Engine
 {
     pub fn new(key_pair: &KeyPairAssembly<E>) -> Self {
-        let a = vec![E::G1::zero(); key_pair.num_inputs + key_pair.num_aux];
-        let b_g1 = vec![E::G1::zero(); key_pair.num_inputs + key_pair.num_aux];
-        let b_g2 = vec![E::G2::zero(); key_pair.num_inputs + key_pair.num_aux];
-        let ic = vec![E::G1::zero(); key_pair.num_inputs];
-        let l = vec![E::G1::zero(); key_pair.num_aux];
+        let a = vec![E::G1::zero(); key_pair.num.inputs + key_pair.num.aux];
+        let b_g1 = vec![E::G1::zero(); key_pair.num.inputs + key_pair.num.aux];
+        let b_g2 = vec![E::G2::zero(); key_pair.num.inputs + key_pair.num.aux];
+        let ic = vec![E::G1::zero(); key_pair.num.inputs];
+        let l = vec![E::G1::zero(); key_pair.num.aux];
         
-        Self { 
+        WireEvaluation { 
             a, 
             b_g1, 
             b_g2, 
             ic: Some(ic), 
             l 
         }
+    }
+
+    pub fn as_mut_auxilliaries(&mut self, kp: &KeyPairAssembly<E>) -> EvaluationWriter<E> {
+        EvaluationWriter::new(
+            &mut self.a[kp.num.inputs..],
+            &mut self.b_g1[kp.num.inputs..],
+            &mut self.b_g2[kp.num.inputs..],
+            &mut self.l
+        )
+    }
+
+    pub fn as_mut_inputs<'a>(&'a mut self, kp: &'a KeyPairAssembly<E>) -> Result<EvaluationWriter<'a,E>> {
+        Ok(EvaluationWriter::new(
+            &mut self.a[0..kp.num.inputs],
+            &mut self.b_g1[0..kp.num.inputs],
+            &mut self.b_g2[0..kp.num.inputs],
+            self.ic.as_mut()?
+        ))
     }
 
     pub fn is_unconstrained(&self) -> bool {
@@ -195,4 +196,56 @@ where
         .filter(|e| !e.is_zero())
         .map(|e| e.into_affine())
         .collect()
+}
+
+pub struct EvaluationWriter<'a, E: Engine> {
+    a: &'a mut [E::G1],
+    b_g1: &'a mut [E::G1],
+    b_g2: &'a mut [E::G2],
+    ext: &'a mut [E::G1]
+} 
+
+impl<'a,E> EvaluationWriter<'a,E> 
+where
+    E: Engine
+{
+    fn new(a: &'a mut [E::G1], b_g1: &'a mut [E::G1], b_g2: &'a mut [E::G2], ext: &'a mut [E::G1]) -> Self {
+        Self {
+            a,
+            b_g1,
+            b_g2,
+            ext   
+        }
+    }
+
+    fn flatten(self) -> FlatEvaluationWriter<'a,E> {
+        FlatEvaluationWriter::from(self)
+    }
+}
+
+struct FlatEvaluationWriter<'a,E: Engine>(Vec<(&'a mut E::G1, &'a mut E::G1, &'a mut E::G2, &'a mut E::G1)>);
+
+impl<'a,E> FlatEvaluationWriter<'a,E> 
+where
+    E: Engine
+{
+    fn chunks_mut(&mut self, chunk_size: usize) -> std::slice::ChunksMut<'_, (&'a mut E::G1, &'a mut E::G1, &'a mut E::G2, &'a mut E::G1)> {
+        self.0.chunks_mut(chunk_size)
+    }
+}
+
+impl<'a,E> From <EvaluationWriter<'a,E>> for FlatEvaluationWriter<'a,E> 
+where
+    E: Engine
+{
+    fn from(writer: EvaluationWriter<'a, E>) -> Self {
+        let flattened: Vec<_> = writer.a.into_iter()
+            .zip(writer.b_g1.into_iter())
+            .zip(writer.b_g2.into_iter())
+            .zip(writer.ext.into_iter())
+            .map(|(((a, b_g1), b_g2), ext)| {
+                (a, b_g1, b_g2, ext)
+            }).collect();
+        FlatEvaluationWriter(flattened)
+    }
 }

@@ -72,13 +72,12 @@ where
 {
     let g1_query: usize = {
         let h_query: _ = domain_size;
-        let icl_query: _ = kp.num_inputs + kp.num_aux;
-        let a_query: _ = kp.num_inputs + kp.num_aux;
-        let b_query: _ = kp.num_inputs + kp.num_aux;
+        let icl_query: _ = kp.num.inputs + kp.num.aux;
+        let a_query: _ = kp.num.inputs + kp.num.aux;
+        let b_query: _ = kp.num.inputs + kp.num.aux;
         h_query + icl_query + a_query + b_query
     };
-
-    let g2_query: usize = kp.num_inputs + kp.num_aux;
+    let g2_query: usize = kp.num.inputs + kp.num.aux;
 
     (g1_query, g2_query)
 }

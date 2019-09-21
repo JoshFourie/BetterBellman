@@ -10,7 +10,7 @@ use domain::Domain;
 use groth16::VerifyingKey;
 
 use super::{eval, key_pair, windows};
-use eval::EvaluationWriter;
+use eval::WireEvaluation;
 use key_pair::KeyPairAssembly;
 use windows::BasedWindowTables;
 
@@ -94,70 +94,37 @@ where
     }
 
 
-    pub fn evaluate(
-        &self, 
-        writer: &mut EvaluationWriter<E>, 
-        key_pair: &KeyPairAssembly<E>,
-        based: BasedWindowTables<'_,E>,
-        lagrange_coeffs: &[Scalar<E>]
-    ) {
-        self.evaluate_inputs(writer, key_pair, &based, lagrange_coeffs);
-        self.evaluate_auxilliaries(writer, key_pair, based, lagrange_coeffs);
+    pub fn evaluate(&self, result: &mut WireEvaluation<E>, kp: &KeyPairAssembly<E>, win: &BasedWindowTables<'_,E>, coeffs: &[Scalar<E>]) {
+        self.input_eval(result, kp, win, coeffs);
+        self.aux_eval(result, kp, win, coeffs);
     }
 
-    fn evaluate_inputs(
-        &self, 
-        writer: &mut EvaluationWriter<E>, 
-        key_pair: &KeyPairAssembly<E>,
-        based: &BasedWindowTables<'_,E>,
-        lagrange_coeffs: &[Scalar<E>]
-    ) {
-        let ic: &mut _ = writer.ic
-            .as_mut()
-            .expect("ic value should not have been taken before evaluation");
-
+    fn input_eval(&self, result: &mut WireEvaluation<E>, kp: &KeyPairAssembly<E>, win: &BasedWindowTables<'_,E>, coeffs: &[Scalar<E>]) -> Result<()> {
         eval::eval(
-            &based.g1,
-            &based.g2,
-            &lagrange_coeffs,
-            &key_pair.at_inputs,
-            &key_pair.bt_inputs,
-            &key_pair.ct_inputs,
-            &mut writer.a[0..key_pair.num_inputs],
-            &mut writer.b_g1[0..key_pair.num_inputs],
-            &mut writer.b_g2[0..key_pair.num_inputs],
-            ic,
+            win,
+            coeffs,
+            &kp.inputs,
+            result.as_mut_inputs(kp)?,
             &self.gamma_inv,
             &self.alpha,
             &self.beta
         );
+        Ok(())
     }
 
-    fn evaluate_auxilliaries(
-        &self, 
-        writer: &mut EvaluationWriter<E>, 
-        key_pair: &KeyPairAssembly<E>,
-        based: BasedWindowTables<'_,E>,
-        lagrange_coeffs: &[Scalar<E>]
-    ) {
+    fn aux_eval(&self, result: &mut WireEvaluation<E>, kp: &KeyPairAssembly<E>, win: &BasedWindowTables<'_,E>, coeffs: &[Scalar<E>]) {
         eval::eval(
-            &based.g1,
-            &based.g2,
-            &lagrange_coeffs,
-            &key_pair.at_aux,
-            &key_pair.bt_aux,
-            &key_pair.ct_aux,
-            &mut writer.a[key_pair.num_inputs..],
-            &mut writer.b_g1[key_pair.num_inputs..],
-            &mut writer.b_g2[key_pair.num_inputs..],
-            &mut writer.l,
+            win,
+            coeffs,
+            &kp.aux,
+            result.as_mut_auxilliaries(kp),
             &self.delta_inv,
             &self.alpha,
             &self.beta
         );
     }
 
-    pub fn build_verifying_key(self, writer: &mut EvaluationWriter<E>) -> VerifyingKey<E> {
+    pub fn build_verifying_key(self, writer: &mut WireEvaluation<E>) -> VerifyingKey<E> {
         let g1: E::G1Affine = self.g1.into_affine();
         let g2: E::G2Affine = self.g2.into_affine();
 
@@ -216,7 +183,7 @@ fn set_tau_and_exponentiate_g1_into_h<E: Engine>(
 ) {
     multi_thread!(h.len(), iter(h, domain.as_ref()) => {
         for (value, power) in h_iter, domain_iter => {
-            let mut g1_wnaf: _ = based_g1.shared();  
+            let mut g1_wnaf: _ = based_g1.shared();
             let exponent: <E::Fr as PrimeField>::Repr = raise_tau_delta_to_exponent(power, &tau_delta).into_repr();
             *value = g1_wnaf.scalar(exponent);
         }
