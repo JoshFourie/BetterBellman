@@ -201,7 +201,7 @@ where
         Self {
             at: Vec::new(), 
             bt: Vec::new(),
-            ct: Vec::new()
+            ct: Vec::new(),
         }
     }
 }
@@ -210,15 +210,33 @@ impl<E> KeyPairWires<E>
 where
     E: Engine
 {
-    // pub fn chunks<'a>(&'a self, chunk: usize) -> std::slice::Iter<'a, KeyPairWireChunk<'a,E>> {
-    //     let mut vec: _ = Vec::new();
-    //     for ((a,b), c) in self.at.chunks(chunk)
-    //         .zip(self.bt.chunks(chunk))
-    //         .zip(self.ct.chunks(chunk))
-    //     {
-    //         let item: _ = KeyPairWireChunk::new(a, b, c);
-    //         vec.push(item)
-    //     }
-    //     vec.iter()
-    // }
+    pub fn flatten(self) -> FlatKeyPairWires<E> {
+        FlatKeyPairWires::from(self)
+    }
+}
+
+pub struct FlatKeyPairWires<E: Engine>(Vec<(Vec<(E::Fr, usize)>, Vec<(E::Fr, usize)>, Vec<(E::Fr, usize)>)>);
+
+impl<E> FlatKeyPairWires<E> 
+where
+    E: Engine
+{
+    pub fn chunks(&self, chunk_size: usize) -> std::slice::Chunks<'_, (Vec<(E::Fr, usize)>, Vec<(E::Fr, usize)>, Vec<(E::Fr, usize)>)> {
+        self.0.chunks(chunk_size)
+    }
+}
+
+impl<E> From <KeyPairWires<E>> for FlatKeyPairWires<E> 
+where
+    E: Engine
+{
+    fn from(kp: KeyPairWires<E>) -> Self {
+        let flattened: Vec<_> = kp.at.into_iter()
+            .zip(kp.bt.into_iter())
+            .zip(kp.ct.into_iter())
+            .map(|((at, bt), ct)| {
+                (at, bt, ct)
+            }).collect();
+        FlatKeyPairWires(flattened)
+    }
 }

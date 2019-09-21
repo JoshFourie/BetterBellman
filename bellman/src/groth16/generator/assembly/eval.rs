@@ -7,13 +7,13 @@ use arith::Scalar;
 use error::Result;
 
 use super::{key_pair, windows};
-use key_pair::{KeyPairAssembly, KeyPairWires};
+use key_pair::{KeyPairAssembly, KeyPairWires, FlatKeyPairWires};
 use windows::BasedWindowTables;
 
 pub fn eval<E: Engine>(
     wnaf: &BasedWindowTables<'_,E>,
     lagrange_coeffs: &[Scalar<E>],
-    qap_polynomials: &KeyPairWires<E>,
+    qap_polynomials: KeyPairWires<E>,
     writer: EvaluationWriter<'_,E>,
 
     // Inverse coefficient for ext elements
@@ -23,16 +23,17 @@ pub fn eval<E: Engine>(
     alpha: &E::Fr,
     beta: &E::Fr,
 ) {
-    // Sanity check
-    assert_eq!(writer.a.len(), qap_polynomials.at.len());
-    assert_eq!(writer.a.len(), qap_polynomials.bt.len());
-    assert_eq!(writer.a.len(), qap_polynomials.ct.len());
-    assert_eq!(writer.a.len(), writer.b_g1.len());
-    assert_eq!(writer.a.len(), writer.b_g2.len());
-    assert_eq!(writer.a.len(), writer.ext.len());
+    // // Sanity check
+    // assert_eq!(writer.a.len(), qap_polynomials.at.len());
+    // assert_eq!(writer.a.len(), qap_polynomials.bt.len());
+    // assert_eq!(writer.a.len(), qap_polynomials.ct.len());
+    // assert_eq!(writer.a.len(), writer.b_g1.len());
+    // assert_eq!(writer.a.len(), writer.b_g2.len());
+    // assert_eq!(writer.a.len(), writer.ext.len());
 
     let coeff_len: usize = writer.a.len();
     let mut flat_writer: FlatEvaluationWriter<E> = writer.flatten();
+    let flat_poly: FlatKeyPairWires<E> = qap_polynomials.flatten();
 
     multi_thread!(coeff_len, iter(flat_writer) => {
         for (a, b_g1, b_g2, ext) in iter => {
@@ -129,20 +130,20 @@ where
         }
     }
 
-    pub fn as_mut_auxilliaries(&mut self, kp: &KeyPairAssembly<E>) -> EvaluationWriter<E> {
+    pub fn as_mut_auxilliaries(&mut self, aux_bound: usize) -> EvaluationWriter<E> {
         EvaluationWriter::new(
-            &mut self.a[kp.num.inputs..],
-            &mut self.b_g1[kp.num.inputs..],
-            &mut self.b_g2[kp.num.inputs..],
+            &mut self.a[aux_bound..],
+            &mut self.b_g1[aux_bound..],
+            &mut self.b_g2[aux_bound..],
             &mut self.l
         )
     }
 
-    pub fn as_mut_inputs<'a>(&'a mut self, kp: &'a KeyPairAssembly<E>) -> Result<EvaluationWriter<'a,E>> {
+    pub fn as_mut_inputs<'a>(&'a mut self, input_bound: usize) -> Result<EvaluationWriter<'a,E>> {
         Ok(EvaluationWriter::new(
-            &mut self.a[0..kp.num.inputs],
-            &mut self.b_g1[0..kp.num.inputs],
-            &mut self.b_g2[0..kp.num.inputs],
+            &mut self.a[0..input_bound],
+            &mut self.b_g1[0..input_bound],
+            &mut self.b_g2[0..input_bound],
             self.ic.as_mut()?
         ))
     }

@@ -11,7 +11,7 @@ use groth16::VerifyingKey;
 
 use super::{eval, key_pair, windows};
 use eval::WireEvaluation;
-use key_pair::KeyPairAssembly;
+use key_pair::{KeyPairAssembly, KeyPairWires};
 use windows::BasedWindowTables;
 
 pub struct ParameterAssembly<E,C> 
@@ -94,17 +94,18 @@ where
     }
 
 
-    pub fn evaluate(&self, result: &mut WireEvaluation<E>, kp: &KeyPairAssembly<E>, win: &BasedWindowTables<'_,E>, coeffs: &[Scalar<E>]) {
-        self.input_eval(result, kp, win, coeffs);
-        self.aux_eval(result, kp, win, coeffs);
+    pub fn evaluate(&self, result: &mut WireEvaluation<E>, kp: KeyPairAssembly<E>, win: &BasedWindowTables<'_,E>, coeffs: &[Scalar<E>]) -> Result<()> {
+        self.input_eval(result, kp.inputs, kp.num.inputs, win, coeffs)?;
+        self.aux_eval(result, kp.aux, kp.num.inputs, win, coeffs);
+        Ok(())
     }
 
-    fn input_eval(&self, result: &mut WireEvaluation<E>, kp: &KeyPairAssembly<E>, win: &BasedWindowTables<'_,E>, coeffs: &[Scalar<E>]) -> Result<()> {
+    fn input_eval(&self, result: &mut WireEvaluation<E>, inputs: KeyPairWires<E>, input_len: usize, win: &BasedWindowTables<'_,E>, coeffs: &[Scalar<E>]) -> Result<()> {
         eval::eval(
             win,
             coeffs,
-            &kp.inputs,
-            result.as_mut_inputs(kp)?,
+            inputs,
+            result.as_mut_inputs(input_len)?,
             &self.gamma_inv,
             &self.alpha,
             &self.beta
@@ -112,12 +113,12 @@ where
         Ok(())
     }
 
-    fn aux_eval(&self, result: &mut WireEvaluation<E>, kp: &KeyPairAssembly<E>, win: &BasedWindowTables<'_,E>, coeffs: &[Scalar<E>]) {
+    fn aux_eval(&self, result: &mut WireEvaluation<E>, aux: KeyPairWires<E>, aux_len: usize, win: &BasedWindowTables<'_,E>, coeffs: &[Scalar<E>]) {
         eval::eval(
             win,
             coeffs,
-            &kp.aux,
-            result.as_mut_auxilliaries(kp),
+            aux,
+            result.as_mut_auxilliaries(aux_len),
             &self.delta_inv,
             &self.alpha,
             &self.beta
