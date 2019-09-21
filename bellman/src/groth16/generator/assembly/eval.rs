@@ -35,68 +35,64 @@ pub fn eval<E: Engine>(
     let mut flat_writer: FlatEvaluationWriter<E> = writer.flatten();
     let flat_poly: FlatKeyPairWires<E> = qap_polynomials.flatten();
 
-    multi_thread!(coeff_len, iter(flat_writer) => {
-        for (a, b_g1, b_g2, ext) in iter => {
+    multi_thread!(coeff_len, iter(flat_writer, flat_poly) => {
+        for ((a, b_g1, b_g2, ext), (at, bt, ct)) in writer, poly => {
 
+            let mut g1_wnaf = wnaf.g1.shared();
+            let mut g2_wnaf = wnaf.g2.shared();
+
+            fn eval_at_tau<E: Engine>(
+                powers_of_tau: &[Scalar<E>],
+                p: &[(E::Fr, usize)],
+            ) -> E::Fr {
+                let mut acc = E::Fr::zero();
+
+                for &(ref coeff, index) in p {
+                    let mut n = powers_of_tau[index].0;
+                    n.mul_assign(coeff);
+                    acc.add_assign(&n);
+                }
+
+                acc
+            }
+
+            // Evaluate QAP polynomials at tau
+            let mut at = eval_at_tau(lagrange_coeffs, at);
+            let mut bt = eval_at_tau(lagrange_coeffs, bt);
+            let ct = eval_at_tau(lagrange_coeffs, ct);
+
+            // Compute A query (in G1)
+            if !at.is_zero() {
+                **a = g1_wnaf.scalar(at.into_repr());
+            }
+
+            // Compute B query (in G1/G2)
+            if !bt.is_zero() {
+                let bt_repr = bt.into_repr();
+                **b_g1 = g1_wnaf.scalar(bt_repr);
+                **b_g2 = g2_wnaf.scalar(bt_repr);
+            }
+
+            at.mul_assign(&beta);
+            bt.mul_assign(&alpha);
+
+            let mut e = at;
+            e.add_assign(&bt);
+            e.add_assign(&ct);
+            e.mul_assign(inv);
+
+            **ext = g1_wnaf.scalar(e.into_repr());
+        }
+
+        // Batch normalize
+        map_to_chunk!{
+            E::G1::batch_normalization(writer.a);
+            E::G1::batch_normalization(writer.b_g1);
+            E::G2::batch_normalization(writer.b_g2);
+            E::G1::batch_normalization(writer.ext);
         }
     });
 
-    // multi_thread!(writer.a.len(), iter(writer, qap_polynomials) => {
-    //     for ((a, b_g1, b_g2, ext), (at, bt, ct)) in writer_chunk, qap_polynomials_chunks => {
-
-    //         let mut g1_wnaf = wnaf.g1.shared();
-    //         let mut g2_wnaf = wnaf.g2.shared();
-
-    //         fn eval_at_tau<E: Engine>(
-    //             powers_of_tau: &[Scalar<E>],
-    //             p: &[(E::Fr, usize)],
-    //         ) -> E::Fr {
-    //             let mut acc = E::Fr::zero();
-
-    //             for &(ref coeff, index) in p {
-    //                 let mut n = powers_of_tau[index].0;
-    //                 n.mul_assign(coeff);
-    //                 acc.add_assign(&n);
-    //             }
-
-    //             acc
-    //         }
-
-    //         // Evaluate QAP polynomials at tau
-    //         let mut at = eval_at_tau(lagrange_coeffs, at);
-    //         let mut bt = eval_at_tau(lagrange_coeffs, bt);
-    //         let ct = eval_at_tau(lagrange_coeffs, ct);
-
-    //         // Compute A query (in G1)
-    //         if !at.is_zero() {
-    //             *a = g1_wnaf.scalar(at.into_repr());
-    //         }
-
-    //         // Compute B query (in G1/G2)
-    //         if !bt.is_zero() {
-    //             let bt_repr = bt.into_repr();
-    //             *b_g1 = g1_wnaf.scalar(bt_repr);
-    //             *b_g2 = g2_wnaf.scalar(bt_repr);
-    //         }
-
-    //         at.mul_assign(&beta);
-    //         bt.mul_assign(&alpha);
-
-    //         let mut e = at;
-    //         e.add_assign(&bt);
-    //         e.add_assign(&ct);
-    //         e.mul_assign(inv);
-
-    //         *ext = g1_wnaf.scalar(e.into_repr());
-
-    //         // Batch normalize
-    //         // E::G1::batch_normalization(a);
-    //         // E::G1::batch_normalization(b_g1);
-    //         // E::G2::batch_normalization(b_g2);
-    //         // E::G1::batch_normalization(ext);
-    //     }
-    // });
-    unimplemented!()
 }
 
 pub struct WireEvaluation<E>

@@ -60,7 +60,7 @@ where
     let mut writer: _ = WireEvaluation::new(&key_pair);
     let lagrange_coeffs = into_lagrange_coefficients(evaluation_domain);
 
-    assembly.evaluate(&mut writer, key_pair, &based, &lagrange_coeffs);
+    assembly.evaluate(&mut writer, key_pair, &based, &lagrange_coeffs)?;
     
     if writer.is_unconstrained() {
         return Err(SynthesisError::UnconstrainedVariable)
