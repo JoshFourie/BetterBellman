@@ -86,13 +86,12 @@ pub fn eval<E: Engine>(
 
         // Batch normalize
         map_to_chunk!{
-            E::G1::batch_normalization(writer.a);
-            E::G1::batch_normalization(writer.b_g1);
-            E::G2::batch_normalization(writer.b_g2);
-            E::G1::batch_normalization(writer.ext);
+            // E::G1::batch_normalization(writer.a);
+            // E::G1::batch_normalization(writer.b_g1);
+            // E::G2::batch_normalization(writer.b_g2);
+            // E::G1::batch_normalization(writer.ext);
         }
     });
-
 }
 
 pub struct WireEvaluation<E>
@@ -154,45 +153,21 @@ where
     }
     
     pub fn filter_non_zero_and_map_to_affine(self) -> (Vec<E::G1Affine>, Vec<E::G1Affine>, Vec<E::G1Affine>, Vec<E::G2Affine>) {
-        let l: _ = map_g1_to_affine::<_,E>(self.l);
-        let a: _ = filter_and_map_g1_to_affine::<_,E>(self.a);
-        let b_g1: _ = filter_and_map_g1_to_affine::<_,E>(self.b_g1);
-        let b_g2: _ = filter_and_map_g2_to_affine::<_,E>(self.b_g2);
+        macro_rules! map_to_affine {
+            ( $($field:expr),+ ) => {
+                (
+                    $(
+                        $field.into_iter()
+                            .filter(|e| !e.is_zero())
+                            .map(|e| e.into_affine())
+                            .collect() 
+                    ),+
+                )
+            }
+        }
             
-        (l, a, b_g1, b_g2)
+        map_to_affine!(self.l, self.a, self.b_g1, self.b_g2)
     }
-}
-
-fn map_g1_to_affine<I,E>(iter: I) -> Vec<E::G1Affine>
-where
-    I: IntoIterator<Item = E::G1>,
-    E: Engine
-{
-    iter.into_iter()
-        .map(|e| e.into_affine())
-        .collect()
-}
-
-fn filter_and_map_g1_to_affine<I,E>(iter: I) -> Vec<E::G1Affine>
-where
-    I: IntoIterator<Item = E::G1>,
-    E: Engine
-{
-    iter.into_iter()
-        .filter(|e| !e.is_zero())
-        .map(|e| e.into_affine())
-        .collect()
-}
-
-fn filter_and_map_g2_to_affine<I,E>(iter: I) -> Vec<E::G2Affine>
-where
-    I: IntoIterator<Item = E::G2>,
-    E: Engine
-{
-    iter.into_iter()
-        .filter(|e| !e.is_zero())
-        .map(|e| e.into_affine())
-        .collect()
 }
 
 pub struct EvaluationWriter<'a, E: Engine> {
