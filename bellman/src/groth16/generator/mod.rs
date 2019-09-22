@@ -49,15 +49,15 @@ where
     C: Circuit<E>,
 {
     let mut assembly: ParameterAssembly<E,C> = ParameterAssembly::new(circuit, g1, g2, alpha, beta, gamma, delta, tau)?;
-    let key_pair: KeyPairAssembly<E> = assembly.build_key_pair_assembly()?;
+    let key_pair: KeyPairAssembly<E> = assembly.key_assembly()?;
     let mut evaluation_domain: Domain<_,_> = key_pair.blind_evaluation_base()?; 
 
-    let mut windows: _ = WindowTables::default();
+    let mut windows: _ = Windows::default();
     let based: _ = windows.as_based(&key_pair, &assembly, &evaluation_domain);
 
     let h: Vec<E::G1Affine> = assembly.compute_h(&mut evaluation_domain, &based.g1)?;
 
-    let mut writer: _ = WireEvaluation::new(&key_pair);
+    let mut writer: _ = Evaluation::new(&key_pair);
     let lagrange_coeffs = into_lagrange_coefficients(evaluation_domain);
 
     assembly.evaluate(&mut writer, key_pair, &based, &lagrange_coeffs)?;
@@ -66,8 +66,8 @@ where
         return Err(SynthesisError::UnconstrainedVariable)
     }
 
-    let vk: VerifyingKey<E> = assembly.build_verifying_key(&mut writer);
-    let (l, a, b_g1, b_g2): _ = writer.filter_non_zero_and_map_to_affine();
+    let vk: VerifyingKey<E> = assembly.into_verifying_key(&mut writer);
+    let (l, a, b_g1, b_g2): _ = writer.filter_into_affine();
 
     Ok(Parameters {
         vk,
