@@ -4,7 +4,7 @@ use pairing::Engine;
 
 use crate::{arith, error, multi_thread};
 use arith::Scalar;
-use error::Result;
+use error::{Result, SynthesisError};
 
 use super::{key_pair, windows};
 use key_pair::{KeyPairAssembly, KeyPairWires, FlatKeyPairWires};
@@ -22,14 +22,10 @@ pub fn eval<E: Engine>(
     // Trapdoors
     alpha: &E::Fr,
     beta: &E::Fr,
-) {
-    // // Sanity check
-    // assert_eq!(writer.a.len(), qap_polynomials.at.len());
-    // assert_eq!(writer.a.len(), qap_polynomials.bt.len());
-    // assert_eq!(writer.a.len(), qap_polynomials.ct.len());
-    // assert_eq!(writer.a.len(), writer.b_g1.len());
-    // assert_eq!(writer.a.len(), writer.b_g2.len());
-    // assert_eq!(writer.a.len(), writer.ext.len());
+) -> Result<()> {
+    if !sanity_check(&qap_polynomials, &writer) {
+        return Err(SynthesisError::MalformedWireSize)
+    }
 
     let coeff_len: usize = writer.a.len();
     let mut flat_writer: FlatEvaluationWriter<E> = writer.flatten();
@@ -83,15 +79,22 @@ pub fn eval<E: Engine>(
 
             **ext = g1_wnaf.scalar(e.into_repr());
         }
-
-        // Batch normalize
-        map_to_chunk!{
-            // E::G1::batch_normalization(writer.a);
-            // E::G1::batch_normalization(writer.b_g1);
-            // E::G2::batch_normalization(writer.b_g2);
-            // E::G1::batch_normalization(writer.ext);
-        }
     });
+
+    flat_writer.batch_normalization();
+    Ok(())
+}
+
+fn sanity_check<E>(qap_polynomials: &KeyPairWires<E>, writer: &EvaluationWriter<'_,E>) -> bool 
+where
+    E: Engine
+{
+    writer.a.len() == qap_polynomials.at.len() &&
+    writer.a.len() == qap_polynomials.bt.len() &&
+    writer.a.len() == qap_polynomials.ct.len() &&
+    writer.a.len() == writer.b_g1.len() &&
+    writer.a.len() == writer.b_g2.len() &&
+    writer.a.len() == writer.ext.len()
 }
 
 pub struct WireEvaluation<E>
@@ -203,6 +206,25 @@ where
 {
     fn chunks_mut(&mut self, chunk_size: usize) -> std::slice::ChunksMut<'_, (&'a mut E::G1, &'a mut E::G1, &'a mut E::G2, &'a mut E::G1)> {
         self.0.chunks_mut(chunk_size)
+    }
+
+    fn batch_normalization(self) {
+        let mut buf_a: Vec<E::G1> = Vec::new();
+        let mut buf_b_g1: Vec<E::G1> = Vec::new();
+        let mut buf_b_g2: Vec<E::G2> = Vec::new();
+        let mut buf_ext: Vec<E::G1> = Vec::new();
+
+        for (a, b_g1, b_g2, ext) in self.0.into_iter() {
+            buf_a.push(*a);
+            buf_b_g1.push(*b_g1);
+            buf_b_g2.push(*b_g2);
+            buf_ext.push(*ext);
+        }
+
+        E::G1::batch_normalization(&mut buf_a);
+        E::G1::batch_normalization(&mut buf_b_g1);
+        E::G2::batch_normalization(&mut buf_b_g2);
+        E::G1::batch_normalization(&mut buf_ext);
     }
 }
 

@@ -96,7 +96,7 @@ where
 
     pub fn evaluate(&self, result: &mut WireEvaluation<E>, kp: KeyPairAssembly<E>, win: &BasedWindowTables<'_,E>, coeffs: &[Scalar<E>]) -> Result<()> {
         self.input_eval(result, kp.inputs, kp.num.inputs, win, coeffs)?;
-        self.aux_eval(result, kp.aux, kp.num.inputs, win, coeffs);
+        self.aux_eval(result, kp.aux, kp.num.aux, win, coeffs)?;
         Ok(())
     }
 
@@ -109,11 +109,11 @@ where
             &self.gamma_inv,
             &self.alpha,
             &self.beta
-        );
+        )?;
         Ok(())
     }
 
-    fn aux_eval(&self, result: &mut WireEvaluation<E>, aux: KeyPairWires<E>, aux_len: usize, win: &BasedWindowTables<'_,E>, coeffs: &[Scalar<E>]) {
+    fn aux_eval(&self, result: &mut WireEvaluation<E>, aux: KeyPairWires<E>, aux_len: usize, win: &BasedWindowTables<'_,E>, coeffs: &[Scalar<E>]) -> Result<()> {
         eval::eval(
             win,
             coeffs,
@@ -122,7 +122,8 @@ where
             &self.delta_inv,
             &self.alpha,
             &self.beta
-        );
+        )?;
+        Ok(())
     }
 
     pub fn build_verifying_key(self, writer: &mut WireEvaluation<E>) -> VerifyingKey<E> {

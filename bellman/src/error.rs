@@ -23,6 +23,8 @@ pub enum SynthesisError {
     IoError(io::Error),
     /// During verification, our verifying key was malformed.
     MalformedVerifyingKey,
+    /// During CRS generation, we observed a malformed wire size.
+    MalformedWireSize,
     /// During CRS generation, we observed an unconstrained auxiliary variable
     UnconstrainedVariable,
     /// During synthesis, we called an operation on a None.
@@ -53,6 +55,7 @@ impl Error for SynthesisError {
             SynthesisError::UnexpectedIdentity => "encountered an identity element in the CRS",
             SynthesisError::IoError(_) => "encountered an I/O error",
             SynthesisError::MalformedVerifyingKey => "malformed verifying key",
+            SynthesisError::MalformedWireSize => "malformed wire size",
             SynthesisError::UnconstrainedVariable => "auxiliary variable was unconstrained",
             SynthesisError::Null => "encountered an operation on a None"
         }
