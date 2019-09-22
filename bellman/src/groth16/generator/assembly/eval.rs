@@ -37,21 +37,6 @@ pub fn eval<E: Engine>(
             let mut g1_wnaf = wnaf.g1.shared();
             let mut g2_wnaf = wnaf.g2.shared();
 
-            fn eval_at_tau<E: Engine>(
-                powers_of_tau: &[Scalar<E>],
-                p: &[(E::Fr, usize)],
-            ) -> E::Fr {
-                let mut acc = E::Fr::zero();
-
-                for &(ref coeff, index) in p {
-                    let mut n = powers_of_tau[index].0;
-                    n.mul_assign(coeff);
-                    acc.add_assign(&n);
-                }
-
-                acc
-            }
-
             // Evaluate QAP polynomials at tau
             let mut at = eval_at_tau(lagrange_coeffs, at);
             let mut bt = eval_at_tau(lagrange_coeffs, bt);
@@ -97,6 +82,19 @@ where
     writer.a.len() == writer.ext.len()
 }
 
+fn eval_at_tau<E>(powers_of_tau: &[Scalar<E>], wires: &[(E::Fr, usize)]) -> E::Fr 
+where
+    E: Engine
+{
+    wires.iter()
+        .fold(E::Fr::zero(), |mut acc, (coeff, idx)| {
+            let Scalar(mut exp): Scalar<E> = powers_of_tau[*idx];
+            exp.mul_assign(coeff);
+            acc.add_assign(&exp);
+            acc
+        })
+}
+
 pub struct WireEvaluation<E>
 where
     E: Engine
@@ -104,7 +102,7 @@ where
     pub a: Vec<E::G1>,
     pub b_g1: Vec<E::G1>,
     pub b_g2: Vec<E::G2>,
-    pub ic: Option<Vec<E::G1>>,
+    pub ic: Vec<E::G1>,
     pub l: Vec<E::G1>
 }
 
@@ -119,13 +117,7 @@ where
         let ic = vec![E::G1::zero(); key_pair.num.inputs];
         let l = vec![E::G1::zero(); key_pair.num.aux];
         
-        WireEvaluation { 
-            a, 
-            b_g1, 
-            b_g2, 
-            ic: Some(ic), 
-            l 
-        }
+        WireEvaluation { a, b_g1, b_g2, ic, l }
     }
 
     pub fn as_mut_auxilliaries(&mut self, aux_bound: usize) -> EvaluationWriter<E> {
@@ -142,7 +134,7 @@ where
             &mut self.a[0..input_bound],
             &mut self.b_g1[0..input_bound],
             &mut self.b_g2[0..input_bound],
-            self.ic.as_mut()?
+            &mut self.ic
         ))
     }
 
@@ -185,12 +177,7 @@ where
     E: Engine
 {
     fn new(a: &'a mut [E::G1], b_g1: &'a mut [E::G1], b_g2: &'a mut [E::G2], ext: &'a mut [E::G1]) -> Self {
-        Self {
-            a,
-            b_g1,
-            b_g2,
-            ext   
-        }
+        Self { a, b_g1, b_g2, ext }
     }
 
     fn flatten(self) -> FlatEvaluationWriter<'a,E> {

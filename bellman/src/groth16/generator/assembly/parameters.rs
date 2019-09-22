@@ -139,9 +139,7 @@ where
         let delta_g2: E::G2Affine = g2.mul(self.delta).into_affine();
 
         let ic: Vec<E::G1Affine> = writer.ic
-            .take()
-            .expect("ic value should not have been taken before building verification key")
-            .into_iter()
+            .iter()
             .map(|e| e.into_affine())
             .collect();
 
