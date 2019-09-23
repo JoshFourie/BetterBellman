@@ -7,6 +7,8 @@ use domain::Domain;
 use error::Result;
 use arith::Scalar;
 
+pub mod wires;
+pub use wires::*;
 
 /// This is our assembly structure that we'll use to synthesize the
 /// circuit into a QAP.
@@ -168,75 +170,5 @@ where
             inputs: KeyPairWires::default(),
             aux: KeyPairWires::default()
         }
-    }
-}
-
-pub struct KeyPairNum {
-    pub inputs: usize,
-    pub aux: usize,
-    pub constraints: usize
-}
-
-impl Default for KeyPairNum {
-    fn default() -> Self {
-        Self {
-            inputs: 0,
-            aux: 0,
-            constraints: 0
-        }
-    }
-}
-
-pub struct KeyPairWires<E: Engine> {
-    pub at: Vec<Vec<(E::Fr, usize)>>,
-    pub bt: Vec<Vec<(E::Fr, usize)>>,
-    pub ct: Vec<Vec<(E::Fr, usize)>>,
-}
-
-impl<E> Default for KeyPairWires<E>
-where
-    E: Engine
-{
-    fn default() -> Self {
-        Self {
-            at: Vec::new(), 
-            bt: Vec::new(),
-            ct: Vec::new(),
-        }
-    }
-}
-
-impl<E> KeyPairWires<E>
-where
-    E: Engine
-{
-    pub fn flatten(self) -> FlatKeyPairWires<E> {
-        FlatKeyPairWires::from(self)
-    }
-}
-
-pub struct FlatKeyPairWires<E: Engine>(Vec<(Vec<(E::Fr, usize)>, Vec<(E::Fr, usize)>, Vec<(E::Fr, usize)>)>);
-
-impl<E> FlatKeyPairWires<E> 
-where
-    E: Engine
-{
-    pub fn chunks(&self, chunk_size: usize) -> std::slice::Chunks<'_, (Vec<(E::Fr, usize)>, Vec<(E::Fr, usize)>, Vec<(E::Fr, usize)>)> {
-        self.0.chunks(chunk_size)
-    }
-}
-
-impl<E> From <KeyPairWires<E>> for FlatKeyPairWires<E> 
-where
-    E: Engine
-{
-    fn from(kp: KeyPairWires<E>) -> Self {
-        let flattened: Vec<_> = kp.at.into_iter()
-            .zip(kp.bt.into_iter())
-            .zip(kp.ct.into_iter())
-            .map(|((at, bt), ct)| {
-                (at, bt, ct)
-            }).collect();
-        FlatKeyPairWires(flattened)
     }
 }

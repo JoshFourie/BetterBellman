@@ -2,96 +2,13 @@ use ff::{Field, PrimeField};
 use group::CurveProjective;
 use pairing::Engine;
 
-use crate::{arith, error, multi_thread};
+use crate::{arith, multi_thread};
 use arith::Scalar;
-use error::Result;
 
-use super::{key_pair, windows, parameters};
+use super::super::{key_pair, windows, parameters};
 use parameters::Elements;
-use key_pair::{KeyPairAssembly, KeyPairWires, FlatKeyPairWires};
+use key_pair::{KeyPairWires, FlatKeyPairWires};
 use windows::BasedWindows;
-
-pub struct Evaluation<E>
-where
-    E: Engine
-{
-    a: Vec<E::G1>,
-    b_g1: Vec<E::G1>,
-    b_g2: Vec<E::G2>,
-    l: Vec<E::G1>,
-    pub ic: Vec<E::G1>
-}
-
-impl<E> Evaluation<E> 
-where
-    E: Engine
-{
-    pub fn new(key_pair: &KeyPairAssembly<E>) -> Self {
-        let a = vec![E::G1::zero(); key_pair.num.inputs + key_pair.num.aux];
-        let b_g1 = vec![E::G1::zero(); key_pair.num.inputs + key_pair.num.aux];
-        let b_g2 = vec![E::G2::zero(); key_pair.num.inputs + key_pair.num.aux];
-        let ic = vec![E::G1::zero(); key_pair.num.inputs];
-        let l = vec![E::G1::zero(); key_pair.num.aux];
-        
-        Evaluation { a, b_g1, b_g2, ic, l }
-    }
-
-    pub fn as_aux(&mut self, aux_bound: usize) -> Writer<E> {
-        Writer::new(
-            &mut self.a[aux_bound..],
-            &mut self.b_g1[aux_bound..],
-            &mut self.b_g2[aux_bound..],
-            &mut self.l
-        )
-    }
-
-    pub fn as_inputs<'a>(&'a mut self, input_bound: usize) -> Result<Writer<'a,E>> {
-        Ok(Writer::new(
-            &mut self.a[0..input_bound],
-            &mut self.b_g1[0..input_bound],
-            &mut self.b_g2[0..input_bound],
-            &mut self.ic
-        ))
-    }
-
-    pub fn is_unconstrained(&self) -> bool {
-        for e in self.l.iter() {
-            if e.is_zero() {
-                return true
-            }
-        }
-        false
-    }
-    
-    pub fn filter_into_affine(self) -> (Vec<E::G1Affine>, Vec<E::G1Affine>, Vec<E::G1Affine>, Vec<E::G2Affine>) {
-        macro_rules! map_to_affine {
-            ( $($field:expr),+ ) => {
-                (
-                    $(
-                        $field.into_iter()
-                            .filter(|e| !e.is_zero())
-                            .map(|e| e.into_affine())
-                            .collect() 
-                    ),+
-                )
-            }
-        }
-        map_to_affine!(self.l, self.a, self.b_g1, self.b_g2)
-    }
-}
-
-fn eval_at_tau<E>(powers_of_tau: &[Scalar<E>], wires: &[(E::Fr, usize)]) -> E::Fr 
-where
-    E: Engine
-{
-    wires.iter()
-        .fold(E::Fr::zero(), |mut acc, (coeff, idx)| {
-            let Scalar(mut exp): Scalar<E> = powers_of_tau[*idx];
-            exp.mul_assign(coeff);
-            acc.add_assign(&exp);
-            acc
-        })
-}
 
 pub struct Writer<'a, E: Engine> {
     a: &'a mut [E::G1],
@@ -104,7 +21,7 @@ impl<'a,E> Writer<'a,E>
 where
     E: Engine
 {
-    fn new(a: &'a mut [E::G1], b_g1: &'a mut [E::G1], b_g2: &'a mut [E::G2], ext: &'a mut [E::G1]) -> Self {
+    pub fn new(a: &'a mut [E::G1], b_g1: &'a mut [E::G1], b_g2: &'a mut [E::G2], ext: &'a mut [E::G1]) -> Self {
         Writer { a, b_g1, b_g2, ext }
     }
 
@@ -166,6 +83,19 @@ where
 
 
     fn flatten(self) -> FlatWriter<'a,E> { FlatWriter::from(self) }
+}
+
+fn eval_at_tau<E>(powers_of_tau: &[Scalar<E>], wires: &[(E::Fr, usize)]) -> E::Fr 
+where
+    E: Engine
+{
+    wires.iter()
+        .fold(E::Fr::zero(), |mut acc, (coeff, idx)| {
+            let Scalar(mut exp): Scalar<E> = powers_of_tau[*idx];
+            exp.mul_assign(coeff);
+            acc.add_assign(&exp);
+            acc
+        })
 }
 
 struct FlatWriter<'a,E: Engine>(Vec<(&'a mut E::G1, &'a mut E::G1, &'a mut E::G2, &'a mut E::G1)>);

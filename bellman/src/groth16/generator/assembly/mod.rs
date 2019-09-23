@@ -1,7 +1,7 @@
-pub mod parameters;
-pub mod key_pair;
-pub mod eval;
-pub mod windows;
+mod parameters;
+mod key_pair;
+mod eval;
+mod windows;
 
 use pairing::Engine;
 use group::Wnaf;
