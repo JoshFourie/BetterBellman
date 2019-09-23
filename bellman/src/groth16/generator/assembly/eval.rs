@@ -6,22 +6,10 @@ use crate::{arith, error, multi_thread};
 use arith::Scalar;
 use error::Result;
 
-use super::{key_pair, windows, Elements};
+use super::{key_pair, windows, parameters};
+use parameters::Elements;
 use key_pair::{KeyPairAssembly, KeyPairWires, FlatKeyPairWires};
 use windows::BasedWindows;
-
-fn eval_at_tau<E>(powers_of_tau: &[Scalar<E>], wires: &[(E::Fr, usize)]) -> E::Fr 
-where
-    E: Engine
-{
-    wires.iter()
-        .fold(E::Fr::zero(), |mut acc, (coeff, idx)| {
-            let Scalar(mut exp): Scalar<E> = powers_of_tau[*idx];
-            exp.mul_assign(coeff);
-            acc.add_assign(&exp);
-            acc
-        })
-}
 
 pub struct Evaluation<E>
 where
@@ -90,6 +78,19 @@ where
         }
         map_to_affine!(self.l, self.a, self.b_g1, self.b_g2)
     }
+}
+
+fn eval_at_tau<E>(powers_of_tau: &[Scalar<E>], wires: &[(E::Fr, usize)]) -> E::Fr 
+where
+    E: Engine
+{
+    wires.iter()
+        .fold(E::Fr::zero(), |mut acc, (coeff, idx)| {
+            let Scalar(mut exp): Scalar<E> = powers_of_tau[*idx];
+            exp.mul_assign(coeff);
+            acc.add_assign(&exp);
+            acc
+        })
 }
 
 pub struct Writer<'a, E: Engine> {

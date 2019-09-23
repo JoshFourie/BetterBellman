@@ -10,8 +10,8 @@ use domain::Domain;
 use groth16::VerifyingKey;
 
 use super::{eval, key_pair, windows};
-use eval::Evaluation;
-use key_pair::KeyPairAssembly;
+use eval::{Evaluation, Writer};
+use key_pair::{KeyPairWires, KeyPairAssembly};
 use windows::BasedWindows;
 
 pub struct ParameterAssembly<E,C> 
@@ -52,7 +52,7 @@ where
         Ok(key_assembly)
     }
 
-    pub fn compute_h(&mut self, domain: &mut Domain<E, Scalar<E>>, based_g1: &Wnaf<usize, &[E::G1], &mut Vec<i64>>) -> Result<Vec<E::G1Affine>> {  
+    pub fn h(&mut self, domain: &mut Domain<E, Scalar<E>>, based_g1: &Wnaf<usize, &[E::G1], &mut Vec<i64>>) -> Result<Vec<E::G1Affine>> {  
         let mut h: Vec<E::G1> = vec![E::G1::zero(); domain.as_ref().len() - 1];
 
         self.elements.map_powers_of_tau(domain.as_mut());        
@@ -67,21 +67,31 @@ where
     }
 
     pub fn evaluate(&self, result: &mut Evaluation<E>, kp: KeyPairAssembly<E>, win: &BasedWindows<'_,E>, coeffs: &[Scalar<E>]) -> Result<()> {
-        let input_results: _ = result.as_inputs(kp.num.inputs)?;
-        let input_wires: _ = kp.inputs;
-        if !input_results.sanity_check(&input_wires) {
-            return Err(SynthesisError::MalformedWireSize)   
-        }
-        input_results.eval(win, coeffs, input_wires, &self.inverse.gamma, &self.elements);
+        let input_result_writer: _ = result.as_inputs(kp.num.inputs)?;
+        self.input_eval(input_result_writer, kp.inputs, win, coeffs)?;
 
-        let aux_results: _ = result.as_aux(kp.num.aux);
-        let aux_wires: _ = kp.aux;
-        if aux_results.sanity_check(&aux_wires) {
-            return Err(SynthesisError::MalformedWireSize)
-        }
-        aux_results.eval(win, coeffs, aux_wires, &self.inverse.delta, &self.elements);
-        
+        let aux_result_writer: _ = result.as_aux(kp.num.aux);
+        self.aux_eval(aux_result_writer, kp.aux, win, coeffs)?;
+
         Ok(())
+    }
+
+    fn input_eval(&self, input_results: Writer<E>, input_wires: KeyPairWires<E>, win: &BasedWindows<'_,E>, coeffs: &[Scalar<E>]) -> Result<()> {
+        if input_results.sanity_check(&input_wires) {
+            input_results.eval(win, coeffs, input_wires, &self.inverse.gamma, &self.elements);
+            Ok(())  
+        } else {
+            Err(SynthesisError::MalformedWireSize) 
+        }
+    }
+
+    fn aux_eval(&self, aux_results: Writer<E>, aux_wires: KeyPairWires<E>, win: &BasedWindows<'_,E>, coeffs: &[Scalar<E>]) -> Result<()> {
+        if aux_results.sanity_check(&aux_wires) {
+            aux_results.eval(win, coeffs, aux_wires, &self.inverse.delta, &self.elements);
+            Ok(())
+        } else {
+            Err(SynthesisError::MalformedWireSize)
+        }
     }
 
     pub fn into_verifying_key(self, writer: &Evaluation<E>) -> VerifyingKey<E> {
