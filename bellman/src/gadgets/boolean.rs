@@ -1,13 +1,13 @@
 use ff::{BitIterator, Field, PrimeField};
 use pairing::Engine;
 
-use crate::{ConstraintSystem, LinearCombination, SynthesisError, Variable, Result};
+use crate::{ConstraintSystem, LinearCombination, SynthesisError, Coefficient, Result};
 
 /// Represents a variable in the constraint system which is guaranteed
 /// to be either zero or one.
 #[derive(Clone)]
 pub struct AllocatedBit {
-    variable: Variable,
+    variable: Coefficient,
     value: Option<bool>,
 }
 
@@ -16,7 +16,7 @@ impl AllocatedBit {
         self.value
     }
 
-    pub fn get_variable(&self) -> Variable {
+    pub fn get_variable(&self) -> Coefficient {
         self.variable
     }
 
@@ -425,7 +425,7 @@ impl Boolean {
         }
     }
 
-    pub fn lc<E: Engine>(&self, one: Variable, coeff: E::Fr) -> LinearCombination<E> {
+    pub fn lc<E: Engine>(&self, one: Coefficient, coeff: E::Fr) -> LinearCombination<E> {
         match self {
             &Boolean::Constant(c) => {
                 if c {

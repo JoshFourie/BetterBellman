@@ -3,13 +3,13 @@ use ff::{ScalarEngine, Field};
 
 /// Represents a variable in our constraint system.
 #[derive(Copy, Clone, Debug)]
-pub struct Variable(Index);
+pub struct Coefficient(Index);
 
-impl Variable {
+impl Coefficient {
     /// This constructs a variable with an arbitrary index.
     /// Circuit implementations are not recommended to use this.
-    pub fn new_unchecked(idx: Index) -> Variable {
-        Variable(idx)
+    pub fn new_unchecked(idx: Index) -> Coefficient {
+        Coefficient(idx)
     }
 
     /// This returns the index underlying the variable.
@@ -30,13 +30,13 @@ pub enum Index {
 /// This represents a linear combination of some variables, with coefficients
 /// in the scalar field of a pairing-friendly elliptic curve group.
 #[derive(Clone)]
-pub struct LinearCombination<E: ScalarEngine>(pub Vec<(Variable, E::Fr)>);
+pub struct LinearCombination<E: ScalarEngine>(pub Vec<(Coefficient, E::Fr)>);
 
-impl<E> AsRef<[(Variable, E::Fr)]> for LinearCombination<E> 
+impl<E> AsRef<[(Coefficient, E::Fr)]> for LinearCombination<E> 
 where
     E: ScalarEngine
 {
-    fn as_ref(&self) -> &[(Variable, E::Fr)] {
+    fn as_ref(&self) -> &[(Coefficient, E::Fr)] {
         &self.0
     }
 }
@@ -50,50 +50,50 @@ where
     }
 }
 
-impl<E> Add<(E::Fr, Variable)> for LinearCombination<E> 
+impl<E> Add<(E::Fr, Coefficient)> for LinearCombination<E> 
 where
     E: ScalarEngine
 {
     type Output = Self;
 
-    fn add(mut self, (coeff, var): (E::Fr, Variable)) -> LinearCombination<E> {
+    fn add(mut self, (coeff, var): (E::Fr, Coefficient)) -> LinearCombination<E> {
         self.0.push((var, coeff));
 
         self
     }
 }
 
-impl<E> Sub<(E::Fr, Variable)> for LinearCombination<E> 
+impl<E> Sub<(E::Fr, Coefficient)> for LinearCombination<E> 
 where
     E: ScalarEngine
 {
     type Output = Self;
 
-    fn sub(self, (mut coeff, var): (E::Fr, Variable)) -> LinearCombination<E> {
+    fn sub(self, (mut coeff, var): (E::Fr, Coefficient)) -> LinearCombination<E> {
         coeff.negate();
 
         self + (coeff, var)
     }
 }
 
-impl<E> Add<Variable> for LinearCombination<E> 
+impl<E> Add<Coefficient> for LinearCombination<E> 
 where
     E: ScalarEngine
 {
     type Output = Self;
 
-    fn add(self, other: Variable) -> LinearCombination<E> {
+    fn add(self, other: Coefficient) -> LinearCombination<E> {
         self + (E::Fr::one(), other)
     }
 }
 
-impl<E> Sub<Variable> for LinearCombination<E> 
+impl<E> Sub<Coefficient> for LinearCombination<E> 
 where
     E: ScalarEngine
 {
     type Output = Self;
 
-    fn sub(self, other: Variable) -> LinearCombination<E> {
+    fn sub(self, other: Coefficient) -> LinearCombination<E> {
         self - (E::Fr::one(), other)
     }
 }

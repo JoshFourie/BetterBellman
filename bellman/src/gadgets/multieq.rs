@@ -1,7 +1,7 @@
 use ff::{Field, PrimeField};
 use pairing::Engine;
 
-use crate::{ConstraintSystem, LinearCombination, SynthesisError, Variable};
+use crate::{ConstraintSystem, LinearCombination, SynthesisError, Coefficient};
 
 pub struct MultiEq<E: Engine, CS: ConstraintSystem<E>> {
     cs: CS,
@@ -69,11 +69,11 @@ impl<E: Engine, CS: ConstraintSystem<E>> Drop for MultiEq<E, CS> {
 impl<E: Engine, CS: ConstraintSystem<E>> ConstraintSystem<E> for MultiEq<E, CS> {
     type Root = Self;
 
-    fn one() -> Variable {
+    fn one() -> Coefficient {
         CS::one()
     }
 
-    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable, SynthesisError>
+    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Coefficient, SynthesisError>
     where
         F: FnOnce() -> Result<E::Fr, SynthesisError>,
         A: FnOnce() -> AR,
@@ -82,7 +82,7 @@ impl<E: Engine, CS: ConstraintSystem<E>> ConstraintSystem<E> for MultiEq<E, CS> 
         self.cs.alloc(annotation, f)
     }
 
-    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable, SynthesisError>
+    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Coefficient, SynthesisError>
     where
         F: FnOnce() -> Result<E::Fr, SynthesisError>,
         A: FnOnce() -> AR,

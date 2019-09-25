@@ -52,10 +52,8 @@ where
 
                 w.mul_assign(&w_m);
             }
-
             k += 2 * m;
         }
-
         m *= 2;
     }
 }

@@ -1,13 +1,13 @@
 use ff::{BitIterator, Field, PrimeField, PrimeFieldRepr};
 use pairing::Engine;
 
-use crate::{ConstraintSystem, LinearCombination, SynthesisError, Variable};
+use crate::{ConstraintSystem, LinearCombination, SynthesisError, Coefficient};
 
 use super::boolean::{self, AllocatedBit, Boolean};
 
 pub struct AllocatedNum<E: Engine> {
     value: Option<E::Fr>,
-    variable: Variable,
+    variable: Coefficient,
 }
 
 impl<E: Engine> Clone for AllocatedNum<E> {
@@ -355,7 +355,7 @@ impl<E: Engine> AllocatedNum<E> {
         self.value
     }
 
-    pub fn get_variable(&self) -> Variable {
+    pub fn get_variable(&self) -> Coefficient {
         self.variable
     }
 }
@@ -390,7 +390,7 @@ impl<E: Engine> Num<E> {
         LinearCombination::zero() + (coeff, &self.lc)
     }
 
-    pub fn add_bool_with_coeff(self, one: Variable, bit: &Boolean, coeff: E::Fr) -> Self {
+    pub fn add_bool_with_coeff(self, one: Coefficient, bit: &Boolean, coeff: E::Fr) -> Self {
         let newval = match (self.value, bit.get_value()) {
             (Some(mut curval), Some(bval)) => {
                 if bval {

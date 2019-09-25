@@ -7,80 +7,72 @@ use std::io;
 use std::iter;
 use std::sync::Arc;
 
-use super::SynthesisError;
+use crate::error::{SynthesisError, Result};
 
 /// An object that builds a source of bases.
 pub trait SourceBuilder<G: CurveAffine>: Send 
+    + 'static
     + Sync 
-    + 'static 
     + Clone 
 {
-    type Source: Source<G>;
-
-    fn new(self) -> Self::Source;
+    fn new<'a>(&'a self) -> SourceIter<'_,G>; 
 }
 
 /// A source of bases, like an iterator.
-pub trait Source<G: CurveAffine> {
+pub trait Source<G> 
+where
+    G: CurveAffine
+{
     /// Parses the element from the source. Fails if the point is at infinity.
-    fn add_assign_mixed(&mut self, to: &mut G::Projective) -> Result<(), SynthesisError>;
+    fn add_assign_mixed(&mut self, to: &mut G::Projective) -> Result<()>;
 
     /// Skips `amt` elements from the source, avoiding deserialization.
-    fn skip(&mut self, amt: usize) -> Result<(), SynthesisError>;
+    fn skip(&mut self, amt: usize) -> Result<()>;
 }
 
-impl<G: CurveAffine> SourceBuilder<G> for (Arc<Vec<G>>, usize) {
-    type Source = (Arc<Vec<G>>, usize);
-
-    fn new(self) -> (Arc<Vec<G>>, usize) {
-        (self.0.clone(), self.1)
+impl<G> SourceBuilder<G> for (Arc<Vec<G>>, usize) 
+where
+    G: CurveAffine
+{
+    fn new(&self) -> SourceIter<'_,G> {
+        SourceIter::new(&self.0, self.1)
+        // self.clone()
     }
 }
 
-impl<G: CurveAffine> Source<G> for (Arc<Vec<G>>, usize) {
-    fn add_assign_mixed(
-        &mut self,
-        to: &mut <G as CurveAffine>::Projective,
-    ) -> Result<(), SynthesisError> {
-        if self.0.len() <= self.1 {
-            return Err(io::Error::new(
+impl<G> Source<G> for (Arc<Vec<G>>, usize) 
+where
+    G: CurveAffine
+{
+    fn add_assign_mixed(&mut self, to: &mut G::Projective) -> Result<()> {
+        if self.0.len() > self.1 {
+            to.add_assign_mixed(&self.0[self.1]);
+            self.1 += 1;
+            Ok(())
+        } else if self.0[self.1].is_zero() {
+            Err(SynthesisError::UnexpectedIdentity)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof, 
+                "expected more bases from source"
+            ).into())
+        }
+    }
+
+    fn skip(&mut self, amt: usize) -> Result<()> {
+        if self.0.len() > self.1 {
+            self.1 += amt;
+            Ok(())
+        } else {
+            Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 "expected more bases from source",
-            )
-            .into());
-        }
-
-        if self.0[self.1].is_zero() {
-            return Err(SynthesisError::UnexpectedIdentity);
-        }
-
-        to.add_assign_mixed(&self.0[self.1]);
-
-        self.1 += 1;
-
-        Ok(())
-    }
-
-    fn skip(&mut self, amt: usize) -> Result<(), SynthesisError> {
-        if self.0.len() <= self.1 {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "expected more bases from source",
-            )
-            .into());
-        }
-
-        self.1 += amt;
-
-        Ok(())
+            ).into())
+        } 
     }
 }
 
-pub trait QueryDensity {
-    /// Returns whether the base exists.
-    type Iter: Iterator<Item = bool>;
-
-    fn iter(self) -> Self::Iter;
+pub trait QueryDensity: IntoIterator<Item = bool> {
     fn get_query_size(self) -> Option<usize>;
 }
 
@@ -94,14 +86,17 @@ impl AsRef<FullDensity> for FullDensity {
 }
 
 impl<'a> QueryDensity for &'a FullDensity {
-    type Iter = iter::Repeat<bool>;
-
-    fn iter(self) -> Self::Iter {
-        iter::repeat(true)
-    }
-
     fn get_query_size(self) -> Option<usize> {
         None
+    }
+}
+
+impl<'a> IntoIterator for &'a FullDensity {
+    type Item = bool;
+    type IntoIter = iter::Repeat<bool>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        iter::repeat(true)
     }
 }
 
@@ -111,14 +106,17 @@ pub struct DensityTracker {
 }
 
 impl<'a> QueryDensity for &'a DensityTracker {
-    type Iter = bit_vec::Iter<'a>;
-
-    fn iter(self) -> Self::Iter {
-        self.bv.iter()
-    }
-
     fn get_query_size(self) -> Option<usize> {
         Some(self.bv.len())
+    }
+}
+
+impl<'a> IntoIterator for &'a DensityTracker {
+    type Item = bool;
+    type IntoIter = bit_vec::Iter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.bv.iter()
     }
 }
 
@@ -146,32 +144,31 @@ impl DensityTracker {
     }
 }
 
-fn multiexp_inner<Q, D, G, S>(
+type Exponents<G: CurveAffine> = Vec<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>;
+
+fn multiexp_inner<Q,D,G,S>(
     bases: S,
     density_map: D,
-    exponents: Arc<Vec<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>>,
+    exponents: Arc<Exponents<G>>,
     mut skip: u32,
     c: u32,
     handle_trivial: bool,
-) -> Box<dyn Future<Item = <G as CurveAffine>::Projective, Error = SynthesisError>>
+) -> Box<dyn Future<Item = G::Projective, Error = SynthesisError>>
 where
     for<'a> &'a Q: QueryDensity,
     D: Send + Sync + 'static + Clone + AsRef<Q>,
     G: CurveAffine,
-    S: SourceBuilder<G>,
+    S: SourceBuilder<G> + Send,
 {
     // Perform this region of the multiexp
     let this = {
-        let bases = bases.clone();
         let exponents = exponents.clone();
         let density_map = density_map.clone();
+        let bases: _ = bases.clone();
 
         MULTI_THREAD.compute(move || {
             // Accumulate the result
             let mut acc = G::Projective::zero();
-
-            // Build a source for the bases
-            let mut bases = bases.new();
 
             // Create space for the buckets
             let mut buckets = vec![<G as CurveAffine>::Projective::zero(); (1 << c) - 1];
@@ -179,16 +176,23 @@ where
             let zero = <G::Engine as ScalarEngine>::Fr::zero().into_repr();
             let one = <G::Engine as ScalarEngine>::Fr::one().into_repr();
 
+            let bases: _ = bases.new();
+
             // Sort the bases into buckets
-            for (&exp, density) in exponents.iter().zip(density_map.as_ref().iter()) {
+            for ((&exp, density), base) in exponents.iter()
+            // for (&exp, density) in exponents.iter()
+                .zip(density_map.as_ref()) 
+                .zip(bases)
+            {
                 if density {
                     if exp == zero {
-                        bases.skip(1)?;
+                        // <SourceIter<G> as Source<G>>::skip(&mut bases, 1);
                     } else if exp == one {
                         if handle_trivial {
-                            bases.add_assign_mixed(&mut acc)?;
+                            acc.add_assign_mixed(base)
+                            // bases.add_assign_mixed(&mut acc)?;
                         } else {
-                            bases.skip(1)?;
+                            // <SourceIter<G> as Source<G>>::skip(&mut bases, 1);
                         }
                     } else {
                         let mut exp = exp;
@@ -196,9 +200,11 @@ where
                         let exp = exp.as_ref()[0] % (1 << c);
 
                         if exp != 0 {
-                            bases.add_assign_mixed(&mut buckets[(exp - 1) as usize])?;
+                            let bucket: _ = &mut buckets[(exp - 1) as usize];
+                            // bases.add_assign_mixed(bucket)?;
+                            bucket.add_assign_mixed(base);
                         } else {
-                            bases.skip(1)?;
+
                         }
                     }
                 }
@@ -250,11 +256,7 @@ where
 
 /// Perform multi-exponentiation. The caller is responsible for ensuring the
 /// query size is the same as the number of exponents.
-pub fn multiexp<Q, D, G, S>(
-    bases: S,
-    density_map: D,
-    exponents: Arc<Vec<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>>,
-) -> Box<dyn Future<Item = <G as CurveAffine>::Projective, Error = SynthesisError>>
+pub fn multiexp<Q,D,G,S>(bases: S, density_map: D, exponents: Arc<Exponents<G>>) -> Box<dyn Future<Item=G::Projective, Error=SynthesisError>>
 where
     for<'a> &'a Q: QueryDensity,
     D: Send + Sync + 'static + Clone + AsRef<Q>,
@@ -275,6 +277,59 @@ where
     }
 
     multiexp_inner(bases, density_map, exponents, 0, c, true)
+}
+
+pub struct SourceIter<'a,G> {
+    elements: &'a Arc<Vec<G>>,
+    _count: usize,
+}
+
+impl<'a,G> SourceIter<'a,G> {
+    fn new(elements: &'a Arc<Vec<G>>, _count: usize) -> Self {
+        Self { 
+            elements, 
+            _count
+        }
+    }
+}
+
+impl<'a,G> Source<G> for SourceIter<'a,G> 
+where
+    G: CurveAffine
+{
+    fn add_assign_mixed(&mut self, to: &mut G::Projective) -> Result<()> {
+        match self.next() {
+            Some(item) => {
+                if !item.is_zero() {
+                    to.add_assign_mixed(&item);
+                    Ok(())
+                } else { Err(SynthesisError::UnexpectedIdentity) }
+            },
+            None => {
+                Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof, 
+                    "expected more bases from source"
+                ).into())
+            }
+        }
+    }
+
+    fn skip(&mut self, amt: usize) -> Result<()> {
+        self._count += amt;
+        Ok(())
+    }
+}
+
+impl<'a,G> Iterator for SourceIter<'a,G> {
+    type Item = &'a G;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self._count < self.elements.len() {
+            let item: _ = &self.elements[self._count];
+            self._count += 1;
+            Some(item)
+        } else { None }
+    }
 }
 
 #[cfg(feature = "pairing")]
@@ -317,4 +372,31 @@ fn test_with_bls12() {
     let fast = multiexp((g, 0), FullDensity, v).wait().unwrap();
 
     assert_eq!(naive, fast);
+}
+
+/// A source is 'like an iterator' is stupid and I need to check its behaviour
+#[test]
+fn temp_compare_iterator() {
+    use pairing::{bls12_381::Bls12, Engine};
+    use rand;
+
+    const SAMPLES: usize = 10;
+    let rng = &mut rand::thread_rng();
+    
+    let mut tuple_source: (Arc<Vec<_>>, usize) = {
+        let g = Arc::new(
+            (0..SAMPLES)
+                .map(|_| <Bls12 as Engine>::G1::random(rng).into_affine())
+                .collect::<Vec<_>>(),
+        );
+        (g, 0)
+    };
+
+    let cloned_source: _ = tuple_source.clone();
+    let iter_source: _ = cloned_source.new();
+
+    for base in iter_source {
+        assert_eq!(base, &tuple_source.0[tuple_source.1]);
+        tuple_source.1 += 1;
+    }
 }

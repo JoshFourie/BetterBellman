@@ -54,7 +54,7 @@ where
         let casted_m: _ = format!("{}",m);
         let minv: _ = E::Fr::from_str(&casted_m)?.inverse()?;
 
-        Self::maybe_pad_with_zeroes(&mut coeffs, m);
+        coeffs.resize(m, G::zero());
 
         let domain: _ = Domain {
             coeffs,
@@ -65,10 +65,6 @@ where
             minv
         };
         Ok(domain)
-    }
-
-    fn maybe_pad_with_zeroes(coeffs: &mut Vec<G>, size: usize) {
-        coeffs.resize(size, G::zero());
     }
 
     // Compute omega, the 2^exp primitive root of unity

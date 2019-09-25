@@ -1,7 +1,7 @@
 use ff::Field;
 use pairing::Engine;
 
-use crate::{ConstraintSystem, Circuit, Index, LinearCombination, Variable};
+use crate::{ConstraintSystem, Circuit, Index, LinearCombination, Coefficient};
 use crate::{domain, error, arith};
 use domain::Domain;
 use error::Result;
@@ -34,7 +34,7 @@ where
         for i in 0..self.num.inputs {
             self.enforce(
                 || "", 
-                |lc| lc + Variable::new_unchecked(Index::Input(i)), 
+                |lc| lc + Coefficient::new_unchecked(Index::Input(i)), 
                 |lc| lc, 
                 |lc| lc
             );
@@ -61,7 +61,7 @@ where
 {
     type Root = Self;
 
-    fn alloc<F, A, AR>(&mut self, _: A, _: F) -> Result<Variable>
+    fn alloc<F, A, AR>(&mut self, _: A, _: F) -> Result<Coefficient>
     where
         F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
@@ -77,10 +77,10 @@ where
         self.aux.bt.push(vec![]);
         self.aux.ct.push(vec![]);
 
-        Ok(Variable::new_unchecked(Index::Aux(index)))
+        Ok(Coefficient::new_unchecked(Index::Aux(index)))
     }
 
-    fn alloc_input<F, A, AR>(&mut self, _: A, _: F) -> Result<Variable>
+    fn alloc_input<F, A, AR>(&mut self, _: A, _: F) -> Result<Coefficient>
     where
         F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
@@ -96,7 +96,7 @@ where
         self.inputs.bt.push(Vec::new());
         self.inputs.ct.push(Vec::new());
 
-        Ok(Variable::new_unchecked(Index::Input(index)))
+        Ok(Coefficient::new_unchecked(Index::Input(index)))
     }
 
     fn enforce<A, AR, LA, LB, LC>(&mut self, _: A, a: LA, b: LB, c: LC)
