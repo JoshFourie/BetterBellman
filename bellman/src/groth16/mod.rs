@@ -1,10 +1,10 @@
 use group::{CurveAffine, EncodedPoint};
 use pairing::{Engine, PairingCurveAffine};
 
-use SynthesisError;
+use crate::SynthesisError;
 
+use crate::multiexp::SourceBuilder;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use multiexp::SourceBuilder;
 use std::io::{self, Read, Write};
 use std::sync::Arc;
 
@@ -18,6 +18,8 @@ mod verifier;
 pub use self::generator::*;
 pub use self::prover::*;
 pub use self::verifier::*;
+
+pub type Result<T> = std::result::Result<T, SynthesisError>;
 
 #[derive(Clone)]
 pub struct Proof<E: Engine> {
@@ -398,66 +400,53 @@ pub struct PreparedVerifyingKey<E: Engine> {
 }
 
 pub trait ParameterSource<E: Engine> {
+
     type G1Builder: SourceBuilder<E::G1Affine>;
+
     type G2Builder: SourceBuilder<E::G2Affine>;
 
-    fn get_vk(&mut self, num_ic: usize) -> Result<VerifyingKey<E>, SynthesisError>;
-    fn get_h(&mut self, num_h: usize) -> Result<Self::G1Builder, SynthesisError>;
-    fn get_l(&mut self, num_l: usize) -> Result<Self::G1Builder, SynthesisError>;
-    fn get_a(
-        &mut self,
-        num_inputs: usize,
-        num_aux: usize,
-    ) -> Result<(Self::G1Builder, Self::G1Builder), SynthesisError>;
-    fn get_b_g1(
-        &mut self,
-        num_inputs: usize,
-        num_aux: usize,
-    ) -> Result<(Self::G1Builder, Self::G1Builder), SynthesisError>;
-    fn get_b_g2(
-        &mut self,
-        num_inputs: usize,
-        num_aux: usize,
-    ) -> Result<(Self::G2Builder, Self::G2Builder), SynthesisError>;
+    fn get_vk(&mut self) -> Result<VerifyingKey<E>>;
+
+    fn get_h(&mut self) -> Result<Self::G1Builder>;
+
+    fn get_l(&mut self) -> Result<Self::G1Builder>;
+
+    fn get_a(&mut self, num_inputs: usize) -> Result<(Self::G1Builder,Self::G1Builder)>;
+
+    fn get_b_g1(&mut self, num_inputs: usize) -> Result<(Self::G1Builder, Self::G1Builder)>;
+
+    fn get_b_g2(&mut self, num_inputs: usize) -> Result<(Self::G2Builder, Self::G2Builder)>;
 }
 
-impl<'a, E: Engine> ParameterSource<E> for &'a Parameters<E> {
+impl<'a, E> ParameterSource<E> for &'a Parameters<E> 
+where
+    E: Engine
+{
     type G1Builder = (Arc<Vec<E::G1Affine>>, usize);
+
     type G2Builder = (Arc<Vec<E::G2Affine>>, usize);
 
-    fn get_vk(&mut self, _: usize) -> Result<VerifyingKey<E>, SynthesisError> {
+    fn get_vk(&mut self) -> Result<VerifyingKey<E>> {
         Ok(self.vk.clone())
     }
 
-    fn get_h(&mut self, _: usize) -> Result<Self::G1Builder, SynthesisError> {
+    fn get_h(&mut self) -> Result<Self::G1Builder> {
         Ok((self.h.clone(), 0))
     }
 
-    fn get_l(&mut self, _: usize) -> Result<Self::G1Builder, SynthesisError> {
+    fn get_l(&mut self) -> Result<Self::G1Builder> {
         Ok((self.l.clone(), 0))
     }
 
-    fn get_a(
-        &mut self,
-        num_inputs: usize,
-        _: usize,
-    ) -> Result<(Self::G1Builder, Self::G1Builder), SynthesisError> {
+    fn get_a(&mut self, num_inputs: usize) -> Result<(Self::G1Builder, Self::G1Builder)> {
         Ok(((self.a.clone(), 0), (self.a.clone(), num_inputs)))
     }
 
-    fn get_b_g1(
-        &mut self,
-        num_inputs: usize,
-        _: usize,
-    ) -> Result<(Self::G1Builder, Self::G1Builder), SynthesisError> {
+    fn get_b_g1(&mut self, num_inputs: usize) -> Result<(Self::G1Builder, Self::G1Builder)> {
         Ok(((self.b_g1.clone(), 0), (self.b_g1.clone(), num_inputs)))
     }
 
-    fn get_b_g2(
-        &mut self,
-        num_inputs: usize,
-        _: usize,
-    ) -> Result<(Self::G2Builder, Self::G2Builder), SynthesisError> {
+    fn get_b_g2(&mut self, num_inputs: usize) -> Result<(Self::G2Builder, Self::G2Builder)> {
         Ok(((self.b_g2.clone(), 0), (self.b_g2.clone(), num_inputs)))
     }
 }
@@ -465,7 +454,7 @@ impl<'a, E: Engine> ParameterSource<E> for &'a Parameters<E> {
 #[cfg(test)]
 mod test_with_bls12_381 {
     use super::*;
-    use {Circuit, ConstraintSystem, SynthesisError};
+    use crate::{Circuit, ConstraintSystem, SynthesisError};
 
     use ff::Field;
     use pairing::bls12_381::{Bls12, Fr};
@@ -482,7 +471,7 @@ mod test_with_bls12_381 {
             fn synthesize<CS: ConstraintSystem<E>>(
                 self,
                 cs: &mut CS,
-            ) -> Result<(), SynthesisError> {
+            ) -> Result<()> {
                 let a = cs.alloc(|| "a", || self.a.ok_or(SynthesisError::AssignmentMissing))?;
                 let b = cs.alloc(|| "b", || self.b.ok_or(SynthesisError::AssignmentMissing))?;
                 let c = cs.alloc_input(
@@ -529,7 +518,7 @@ mod test_with_bls12_381 {
             let mut c = a;
             c.mul_assign(&b);
 
-            let proof = create_random_proof(
+            let proof = prover::create_random_proof(
                 MySillyCircuit {
                     a: Some(a),
                     b: Some(b),

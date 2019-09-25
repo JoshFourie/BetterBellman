@@ -4,6 +4,120 @@
 //! crossbeam but may be extended in the future to
 //! allow for various parallelism strategies.
 
+use lazy_static::lazy_static;
+
+lazy_static!{
+    pub static ref MULTI_THREAD: implementation::Worker = implementation::Worker::new();
+}
+
+/// A macro for invoking multi-threaded computations.
+/// 
+/// # Usage
+/// 
+/// In the simplest case, the macro will accept the length of the sequence
+/// and the function to perform. The code will expand as follows:
+/// ``` 
+/// mu
+/// ```
+#[macro_export]
+macro_rules! multi_thread {
+    ($elements:expr => {
+        for $value:tt in $iter:expr =>
+            $code_block:block   
+    }) => {
+        crate::multicore::MULTI_THREAD.scope($elements, |scope, _| {
+            for $value in $iter {
+                scope.spawn(move || {
+                    $code_block
+                });
+            }
+        });
+    };    
+
+    ($elements:expr, chunk_ident!($chunk:ident) => {
+        for $value:tt in $iter:expr =>
+            $code_block:block   
+    }) => {
+        crate::multicore::MULTI_THREAD.scope($elements, |scope, $chunk| {
+            for $value in $iter {
+                scope.spawn(move || {
+                    $code_block
+                });
+            }
+        });
+    };    
+
+    // ($elements:expr, iter($lhs:expr) => {
+    //     for $value:tt in $iter_id:ident => 
+    //         $code_block:block 
+    // }) => {
+    //     multi_thread!($elements, chunk_ident!(chunks) => {
+    //         for chunk in $lhs.chunks_mut(chunks) => {
+    //             for $value in chunk.iter_mut() { 
+    //                 $code_block   
+    //             }
+    //         }
+    //     });
+    // }; 
+
+    ($elements:expr, iter($first:expr $(, $zipped:expr )? ) => {
+        for $value:tt in $first_id:ident $(, $zipped_id:ident )?  => 
+            $code_block:block 
+    }) => {
+        crate::multicore::MULTI_THREAD.scope($elements, |scope, chunk_size| {
+            for ($first_id $(, $zipped_id)? ) in $first.chunks_mut(chunk_size)
+                $( .zip($zipped.chunks(chunk_size)) )?
+            {
+                for $value in $first_id.iter_mut()
+                    $( .zip($zipped_id) )?
+                {
+                    scope.spawn(move || {
+                        $code_block
+                    });
+                }
+            }
+        });
+    }; 
+
+    ($elements:expr, iter($first:expr $(, $zipped:expr )? ) => {
+        for $value:tt in $first_id:ident $(, $zipped_id:ident )?  => 
+            $code_block:block 
+    }) => {
+        crate::multicore::MULTI_THREAD.scope($elements, |scope, chunk_size| {
+            for ($first_id $(, $zipped_id)? ) in $first.chunks_mut(chunk_size)
+                $( .zip($zipped.chunks(chunk_size)) )?
+            {
+                $( $chunk_op )+
+                for $value in $first_id.iter_mut()
+                    $( .zip($zipped_id) )?
+                {
+                    scope.spawn(move || {
+                        $code_block
+                    });
+                }
+            }
+        });
+    }; 
+
+    ($elements:expr, enumerate($iter:expr) => {
+        for ($idx:ident, $value:tt) in $iter_id:ident => 
+            $code_block:block 
+    }) => {
+        crate::multicore::MULTI_THREAD.scope($elements, |scope, chunk_size| {
+            for (_i, iter) in $iter.chunks_mut(chunk_size)
+                .enumerate() 
+            {
+                for (mut $idx, $value) in iter.iter_mut().enumerate() { 
+                    $idx += _i * chunk_size;
+                    scope.spawn(move || {
+                        $code_block
+                    });
+                }
+            }
+        });
+    }; 
+}
+
 #[cfg(feature = "multicore")]
 mod implementation {
     use crossbeam::{self, Scope};
