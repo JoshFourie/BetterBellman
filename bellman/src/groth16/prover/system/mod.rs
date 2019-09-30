@@ -12,9 +12,8 @@ use arith::Scalar;
 use multiexp::DensityTracker;
 
 mod builder;
-mod context;
-mod fourier;
 mod source;
+mod fourier;
 
 type AssignmentField<E> = Arc<Vec<<<E as ScalarEngine>::Fr as PrimeField>::Repr>>;
 
