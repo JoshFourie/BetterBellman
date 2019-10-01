@@ -33,6 +33,7 @@ where
         Evaluation { a, b_g1, b_g2, ic, l }
     }
 
+    // Note: aux bound should begin where the input bound ends. 
     pub fn as_aux(&mut self, aux_bound: usize) -> Writer<E> {
         Writer::new(
             &mut self.a[aux_bound..],

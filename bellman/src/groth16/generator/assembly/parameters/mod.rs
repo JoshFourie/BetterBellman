@@ -68,10 +68,11 @@ where
     }
 
     pub fn evaluate(&self, result: &mut Evaluation<E>, kp: KeyPairAssembly<E>, win: &BasedWindows<'_,E>, coeffs: &[Scalar<E>]) -> Result<()> {
-        let input_result_writer: _ = result.as_inputs(kp.num.inputs);
+        let input_size: usize = kp.num.inputs;
+        let input_result_writer: _ = result.as_inputs(input_size);
         self.input_eval(input_result_writer, kp.inputs, win, coeffs)?;
 
-        let aux_result_writer: _ = result.as_aux(kp.num.aux);
+        let aux_result_writer: _ = result.as_aux(input_size);
         self.aux_eval(aux_result_writer, kp.aux, win, coeffs)?;
 
         Ok(())
