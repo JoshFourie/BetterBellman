@@ -1,9 +1,9 @@
 use ff::ScalarEngine;
 use std::marker;
 
-use super::{ConstraintSystem, linear, error};
+use super::{ConstraintSystem, domain, error};
 use error::Result;
-use linear::{Coefficient, LinearCombination};
+use domain::{Coefficient, LinearCombination};
 
 /// This is a "namespaced" constraint system which borrows a constraint system (pushing
 /// a namespace context) and, when dropped, pops out of the namespace context.
