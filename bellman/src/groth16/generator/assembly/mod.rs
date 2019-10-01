@@ -6,8 +6,8 @@ mod windows;
 use pairing::Engine;
 use group::Wnaf;
 
-use crate::{arith, Circuit};
-use arith::Scalar;
+use crate::{domain, Circuit};
+use domain::Scalar;
 
 use parameters::ParameterAssembly;
 use key_pair::KeyPairAssembly;

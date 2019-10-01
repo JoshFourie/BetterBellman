@@ -1,6 +1,6 @@
-use crate::{arith, multi_thread, multicore};
+use crate::{domain, multi_thread, multicore};
 use multicore::MULTI_THREAD;
-use arith::Group;
+use domain::Group;
 
 use ff::{Field, ScalarEngine};
 
@@ -116,8 +116,7 @@ fn bitreverse(mut n: u32, l: u32) -> u32 {
 #[cfg(test)]
 mod test {
     use super::*;
-    use arith::Scalar;
-    use crate::domain::Domain;
+    use crate::domain::{Domain, Scalar};
 
     #[cfg(feature = "pairing")]
     #[test]

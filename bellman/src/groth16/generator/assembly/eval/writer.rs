@@ -2,8 +2,8 @@ use ff::{Field, PrimeField};
 use group::CurveProjective;
 use pairing::Engine;
 
-use crate::{arith, multi_thread};
-use arith::Scalar;
+use crate::{domain, multi_thread};
+use domain::Scalar;
 
 use super::super::{key_pair, windows, parameters};
 use parameters::Elements;

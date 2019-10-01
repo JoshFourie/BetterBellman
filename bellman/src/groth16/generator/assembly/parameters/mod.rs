@@ -1,11 +1,10 @@
 use pairing::Engine;
 use group::{Wnaf, CurveProjective, CurveAffine};
 
-use crate::{error, arith, domain, groth16};
+use crate::{error, domain, groth16};
 use crate::Circuit;
 use error::{SynthesisError, Result};
-use arith::Scalar;
-use domain::Domain;
+use domain::{Domain, Scalar};
 use groth16::VerifyingKey;
 
 use super::{eval, key_pair, windows};

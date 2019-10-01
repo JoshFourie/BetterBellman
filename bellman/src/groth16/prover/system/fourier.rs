@@ -3,8 +3,7 @@ use std::sync::Arc;
 use ff::PrimeField;
 use pairing::Engine;
 
-use crate::domain::Domain;
-use crate::arith::Scalar;
+use crate::domain::{Domain, Scalar};
 use super::{PolynomialEvaluation, AssignmentField, Result};
 
 pub fn evaluate_coefficients<E>(eval: &mut PolynomialEvaluation<E>) -> Result<AssignmentField<E>>

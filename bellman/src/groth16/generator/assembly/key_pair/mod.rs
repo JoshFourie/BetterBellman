@@ -2,10 +2,9 @@ use ff::Field;
 use pairing::Engine;
 
 use crate::{ConstraintSystem, Circuit, Index, LinearCombination, Coefficient};
-use crate::{domain, error, arith};
-use domain::Domain;
+use crate::{domain, error};
+use domain::{Domain, Scalar};
 use error::Result;
-use arith::Scalar;
 
 pub mod wires;
 pub use wires::*;

@@ -1,9 +1,8 @@
 use group::Wnaf;
 use pairing::Engine;
 
-use crate::{domain, arith, error, Circuit};
-use domain::Domain;
-use arith::Group;
+use crate::{domain, error, Circuit};
+use domain::{Domain, Group};
 use error::Result;
 
 use super::Assembly;

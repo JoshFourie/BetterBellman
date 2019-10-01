@@ -2,9 +2,8 @@ use pairing::Engine;
 use ff::{PrimeField, Field};
 use group::{CurveProjective, Wnaf};
 
-use crate::{multi_thread, domain, arith, error};
-use arith::Scalar;
-use domain::Domain;
+use crate::{multi_thread, domain, error};
+use domain::{Scalar, Domain};
 use error::{SynthesisError, Result};
 
 pub struct ParameterGroups<E>

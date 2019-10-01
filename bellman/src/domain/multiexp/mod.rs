@@ -14,7 +14,7 @@ pub use density::*;
 use source::SourceIter;
 use region::RegionCounter;
 
-type Exponents<G: CurveAffine> = Vec<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>;
+type Exponents<G> = Vec<<<<G as CurveAffine>::Engine as ScalarEngine>::Fr as PrimeField>::Repr>;
 
 /// Perform multi-exponentiation. The thread will panic if the
 /// query size is the not the same as the number of exponents.

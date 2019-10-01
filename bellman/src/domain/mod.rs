@@ -1,18 +1,15 @@
-pub mod arith;
-pub mod linear;
+pub mod primitives;
 pub mod fft;
 pub mod multiexp;
 
-pub use arith::*;
-pub use linear::*;
+pub use primitives::*;
 pub use fft::*;
 pub use multiexp::*;
 
 use ff::{Field, PrimeField, ScalarEngine};
 
-use crate::{error, multicore, multi_thread};
+use crate::{error, multi_thread};
 use error::{SynthesisError, Result};
-use arith::{Scalar, Group};
 
 use std::ops;
 

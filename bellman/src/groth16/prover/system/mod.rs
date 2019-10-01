@@ -7,8 +7,8 @@ use pairing::Engine;
 use super::{ParameterSource, Result};
 
 use crate::{ConstraintSystem, Index, LinearCombination, Coefficient};
-use crate::{arith, multiexp};
-use arith::Scalar;
+use crate::{domain, multiexp};
+use domain::Scalar;
 use multiexp::DensityTracker;
 
 mod builder;
