@@ -22,9 +22,11 @@ where
     E: Engine
 {
     pub fn new(key_pair: &KeyPairAssembly<E>) -> Self {
-        let a = vec![E::G1::zero(); key_pair.num.inputs + key_pair.num.aux];
-        let b_g1 = vec![E::G1::zero(); key_pair.num.inputs + key_pair.num.aux];
-        let b_g2 = vec![E::G2::zero(); key_pair.num.inputs + key_pair.num.aux];
+        let size_of_key_pair: usize = key_pair.num.inputs + key_pair.num.aux; 
+
+        let a = vec![E::G1::zero(); size_of_key_pair];
+        let b_g1 = vec![E::G1::zero(); size_of_key_pair];
+        let b_g2 = vec![E::G2::zero(); size_of_key_pair];
         let ic = vec![E::G1::zero(); key_pair.num.inputs];
         let l = vec![E::G1::zero(); key_pair.num.aux];
         
