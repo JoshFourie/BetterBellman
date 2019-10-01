@@ -38,12 +38,6 @@ where
             acc
         });
 
-    // let mut acc = pvk.ic[0].into_projective();
-
-    // for (i, b) in public_inputs.iter().zip(pvk.ic.iter().skip(1)) {
-    //     acc.add_assign(&b.mul(i.into_repr()));
-    // }
-
     // The original verification equation is:
     // A * B = alpha * beta + inputs * gamma + C * delta
     // ... however, we rearrange it so that it is:
