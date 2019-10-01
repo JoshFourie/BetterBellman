@@ -38,9 +38,7 @@ where
             let mut bases: SourceIter<_> = bases.new();
             bases.settings(settings);
 
-            // Create space for the buckets
             let mut buckets = vec![<G as CurveAffine>::Projective::zero(); (1 << c) - 1];
-
             let density_iter: _ = density_map.as_ref();
             let mut forward_total: G::Projective = exponents.iter()
                 .zip(density_iter)
@@ -50,18 +48,7 @@ where
                     } else { accumulator }
                 })?;
 
-            // Summation by parts
-            // e.g. 3a + 2b + 1c = a +
-            //                    (a) + b +
-            //                    ((a) + b) + c
-            let mut running_sum = G::Projective::zero();
-            for exp in buckets.iter()
-                .rev() 
-            {
-                running_sum.add_assign(exp);
-                forward_total.add_assign(&running_sum);
-            }
-
+            add_assign_by_parts::<G>(&mut forward_total, buckets);
             Ok(forward_total)
         })
     };
@@ -249,4 +236,21 @@ where
     let cpu_count: _ = settings.get_cpu();
     let cpu_adjusted: _ = adjusted[0] % (1 << cpu_count);
     cpu_adjusted
+}
+
+// Summation by parts
+// e.g. 3a + 2b + 1c = a +
+//                    (a) + b +
+//                    ((a) + b) + c
+fn add_assign_by_parts<G>(lhs: &mut G::Projective, buckets: Vec<G::Projective>) 
+where
+    G: CurveAffine
+{
+    let mut sigma: _ = G::Projective::zero();
+    for exponent in buckets.iter()
+        .rev()
+    {
+        sigma.add_assign(exponent);
+        lhs.add_assign(&sigma)
+    }
 }
