@@ -1,20 +1,34 @@
-use group::{CurveAffine, CurveProjective};
-use ff::{PrimeField, Field, ScalarEngine};
+use group::CurveAffine;
+use ff::{PrimeField, ScalarEngine};
 use std::sync::Arc;
 use futures::Future;
 
-use crate::error::{Result, SynthesisError};
+use crate::error::SynthesisError;
 
 mod density;
 mod inner;
-mod settings;
+mod region;
 mod source;
 
 pub use density::*;
 use source::SourceIter;
-use settings::MultiExpSettings;
+use region::RegionCounter;
 
 type Exponents<G: CurveAffine> = Vec<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>;
+
+/// Perform multi-exponentiation. The thread will panic if the
+/// query size is the not the same as the number of exponents.
+pub fn multiexp<Q,D,G,S>(bases: S, density_map: D, exponents: Arc<Exponents<G>>) -> Box<dyn Future<Item=G::Projective, Error=SynthesisError>>
+where
+    for<'a> &'a Q: QueryDensity,
+    D: Send + Sync + 'static + Clone + AsRef<Q>,
+    G: CurveAffine,
+    S: SourceBuilder<G>,
+{
+    let region: _ = RegionCounter::try_new::<G,Q>(&exponents, density_map.as_ref())
+        .expect("could not build region for multi-exponentiation");     
+    inner::multiexp_inner(bases, density_map, exponents, region)
+}
 
 /// An object that builds a source of bases.
 pub trait SourceBuilder<G: CurveAffine>: Send 
@@ -34,35 +48,20 @@ where
     }
 }
 
-/// Perform multi-exponentiation. The caller is responsible for ensuring the
-/// query size is the same as the number of exponents.
-pub fn multiexp<Q,D,G,S>(bases: S, density_map: D, exponents: Arc<Exponents<G>>) -> Box<dyn Future<Item=G::Projective, Error=SynthesisError>>
-where
-    for<'a> &'a Q: QueryDensity,
-    D: Send + Sync + 'static + Clone + AsRef<Q>,
-    G: CurveAffine,
-    S: SourceBuilder<G>,
-{
-    let settings: _ = MultiExpSettings::try_new::<G,Q>(&exponents, density_map.as_ref())
-        .expect("could not build settings for multi-exponentiation");     
-    inner::multiexp_inner(bases, density_map, exponents, settings)
-}
-
 #[cfg(feature = "pairing")]
 #[test]
 fn test_with_bls12() {
-    fn naive_multiexp<G: CurveAffine>(
-        bases: Arc<Vec<G>>,
-        exponents: Arc<Vec<<G::Scalar as PrimeField>::Repr>>,
-    ) -> G::Projective {
+    use ff::{Field, PrimeField};
+    use group::CurveProjective;
+
+    fn naive_multiexp<G: CurveAffine>(bases: Arc<Vec<G>>, exponents: Arc<Exponents<G>>) -> G::Projective {
         assert_eq!(bases.len(), exponents.len());
-
         let mut acc = G::Projective::zero();
-
-        for (base, exp) in bases.iter().zip(exponents.iter()) {
+        for (base, exp) in bases.iter()
+            .zip(exponents.iter()) 
+        {
             acc.add_assign(&base.mul(*exp));
         }
-
         acc
     }
 

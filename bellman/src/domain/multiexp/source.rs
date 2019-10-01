@@ -1,17 +1,15 @@
-use crate::multicore::MULTI_THREAD;
-use ff::{Field, PrimeField, PrimeFieldRepr, ScalarEngine};
-use futures::Future;
+use ff::{Field, PrimeField, ScalarEngine};
 use group::{CurveAffine, CurveProjective};
 use std::io;
 use std::sync::Arc;
 
 use crate::error;
 use error::{SynthesisError, Result};
-use super::{SourceBuilder, QueryDensity, Exponents, MultiExpSettings};
+use super::region::RegionCounter;
 
 pub struct SourceIter<'a,G> {
     elements: &'a Arc<Vec<G>>,
-    settings: MultiExpSettings,
+    rc: RegionCounter,
     _count: usize,
 }
 
@@ -19,7 +17,7 @@ impl<'a,G> SourceIter<'a,G> {
     pub fn new(elements: &'a Arc<Vec<G>>, _count: usize) -> Self {
         Self { 
             elements,
-            settings: MultiExpSettings::default(),
+            rc: RegionCounter::default(),
             _count
         }
     }
@@ -28,8 +26,8 @@ impl<'a,G> SourceIter<'a,G> {
         self._count += amt;
     }
 
-    pub fn settings(&mut self, settings: MultiExpSettings) {
-        self.settings = settings
+    pub fn configure(&mut self, rc: RegionCounter) {
+        self.rc = rc
     }
 }
 
@@ -38,7 +36,7 @@ where
     G: CurveAffine
 {
     pub fn try_sort(&mut self, mut acc: G::Projective, buckets: &mut Vec<G::Projective>, exp: &<G::Scalar as ff::PrimeField>::Repr) -> Result<G::Projective> {
-        let settings: _ = &mut self.settings;
+        let settings: _ = &mut self.rc;
         let ref zero: _ = Self::repr_zero();
         let ref one: _ = Self::repr_one();
 
@@ -54,7 +52,7 @@ where
 
     fn try_into_bucket(&mut self, buckets: &mut Vec<G::Projective>, exp: &<G::Scalar as ff::PrimeField>::Repr) -> Result<()> {
         let adjustment_source: _ = exp.clone();
-        let adjusted_exponent: _ = self.settings.adjust_for_multithreading::<G>(adjustment_source);
+        let adjusted_exponent: _ = self.rc.adjust_exponent_by_region::<G>(adjustment_source);
 
         if adjusted_exponent != 0 {
             let bucket: _ = &mut buckets[(adjusted_exponent - 1) as usize];
