@@ -7,9 +7,12 @@ use crate::error::{Result, SynthesisError};
 
 mod density;
 mod inner;
+mod settings;
+mod source;
 
 pub use density::*;
-use inner::SourceIter;
+use source::SourceIter;
+use settings::MultiExpSettings;
 
 type Exponents<G: CurveAffine> = Vec<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>;
 
@@ -40,20 +43,9 @@ where
     G: CurveAffine,
     S: SourceBuilder<G>,
 {
-    let c = if exponents.len() < 32 {
-        3u32
-    } else {
-        (f64::from(exponents.len() as u32)).ln().ceil() as u32
-    };
-
-    if let Some(query_size) = density_map.as_ref().get_query_size() {
-        // If the density map has a known query size, it should not be
-        // inconsistent with the number of exponents.
-
-        assert!(query_size == exponents.len());
-    }
-
-    inner::multiexp_inner(bases, density_map, exponents, 0, c, true)
+    let settings: _ = MultiExpSettings::try_new::<G,Q>(&exponents, density_map.as_ref())
+        .expect("could not build settings for multi-exponentiation");     
+    inner::multiexp_inner(bases, density_map, exponents, settings)
 }
 
 #[cfg(feature = "pairing")]
