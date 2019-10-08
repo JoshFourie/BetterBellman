@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use pairing::Engine;
 
-use super::{ParameterSource, QueryDensity, AssignmentField, Result, source, context};
+use super::{ParameterSource, QueryDensity, AssignmentField, Result, source};
 use crate::multiexp::DensityTracker;
 
 pub struct Source<P: ParameterSource<E>, E: Engine> {
-    answer: Option<source::Answer<P,E>>,
-    aux: Option<source::Auxiliary<P,E>>,
+    answer: Option<source::AnswerSource<P,E>>,
+    aux: Option<source::AuxiliarySource<P,E>>,
 }
 
 impl<P,E> Source<P,E>
@@ -21,18 +21,18 @@ where
 
         let b_input_total: usize = b_input_density.get_total_density();
         
-        let (a_input_src, a_aux_src): _ = params.get_a(a_input)?;
-        let (b1_input_src, b1_aux_src): _ = params.get_b_g1(b_input_total)?;
-        let (b2_input_src, b2_aux_src): _ = params.get_b_g2(b_input_total)?;
+        let (a_input_src, a_aux_src): _ = params.a(a_input)?;
+        let (b1_input_src, b1_aux_src): _ = params.b_g1(b_input_total)?;
+        let (b2_input_src, b2_aux_src): _ = params.b_g2(b_input_total)?;
 
-        let answer_src: _ = Answer::new(
+        let answer_src: _ = AnswerSource::new(
             a_input_src, 
             b1_input_src, 
             b2_input_src, 
             b_input_density
         );
 
-        let aux_src: _ = Auxiliary::new(
+        let aux_src: _ = AuxiliarySource::new(
             a_aux_src,
             b1_aux_src,
             b2_aux_src,
@@ -46,16 +46,16 @@ where
         })
     }        
 
-    pub fn into_answer(&mut self, input: AssignmentField<E>) -> Result<context::Answer<E>> {
-        context::Answer::try_new(self.answer.take()?, input)
+    pub fn into_answer(&mut self, input: AssignmentField<E>) -> Result<super::Answer<E>> {
+        super::Answer::try_new(self.answer.take()?, input)
     }
 
-    pub fn into_auxiliary(&mut self, aux: AssignmentField<E>) -> Result<context::Auxiliary<E>> {
-        context::Auxiliary::try_new(self.aux.take()?, aux)
+    pub fn into_auxiliary(&mut self, aux: AssignmentField<E>) -> Result<super::Auxiliary<E>> {
+        super::Auxiliary::try_new(self.aux.take()?, aux)
     }
 }
 
-pub struct Answer<P: ParameterSource<E>, E: Engine> {
+pub struct AnswerSource<P: ParameterSource<E>, E: Engine> {
     pub a_input_src: P::G1Builder,
     pub b1_input_src: P::G1Builder,
     pub b2_input_src: P::G2Builder,
@@ -63,7 +63,7 @@ pub struct Answer<P: ParameterSource<E>, E: Engine> {
     _marker: std::marker::PhantomData<E>
 }
 
-impl<P,E> Answer<P,E>
+impl<P,E> AnswerSource<P,E>
 where
     P: ParameterSource<E>,
     E: Engine
@@ -74,7 +74,7 @@ where
         b2_input_src: P::G2Builder,
         b_input_density: Arc<DensityTracker>
     ) -> Self {
-        Answer {
+        AnswerSource {
             a_input_src,
             b1_input_src,
             b2_input_src,
@@ -84,7 +84,7 @@ where
     }
 }
 
-pub struct Auxiliary<P: ParameterSource<E>, E: Engine> {
+pub struct AuxiliarySource<P: ParameterSource<E>, E: Engine> {
     pub a_aux_src: P::G1Builder,
     pub b1_aux_src: P::G1Builder,
     pub b2_aux_src: P::G2Builder,
@@ -93,7 +93,7 @@ pub struct Auxiliary<P: ParameterSource<E>, E: Engine> {
     _marker: std::marker::PhantomData<E>
 }
 
-impl<P,E> Auxiliary<P,E>
+impl<P,E> AuxiliarySource<P,E>
 where
     P: ParameterSource<E>,
     E: Engine
@@ -105,7 +105,7 @@ where
         a_aux_density: DensityTracker,
         b_aux_density: Arc<DensityTracker>
     ) -> Self {
-        Auxiliary {
+        AuxiliarySource {
             a_aux_src,
             b1_aux_src,
             b2_aux_src,

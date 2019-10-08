@@ -1,9 +1,9 @@
 use ff::ScalarEngine;
 use std::marker;
 
-use super::{ConstraintSystem, linear, error};
+use super::{ConstraintSystem, domain, error};
 use error::Result;
-use linear::{Variable, LinearCombination};
+use domain::{Coefficient, LinearCombination};
 
 /// This is a "namespaced" constraint system which borrows a constraint system (pushing
 /// a namespace context) and, when dropped, pops out of the namespace context.
@@ -37,11 +37,11 @@ where
 {
     type Root = CS::Root;
 
-    fn one() -> Variable {
+    fn one() -> Coefficient {
         CS::one()
     }
 
-    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable>
+    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Coefficient>
     where
         F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
@@ -50,7 +50,7 @@ where
         self.cs.alloc(annotation, f)
     }
 
-    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable>
+    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Coefficient>
     where
         F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,

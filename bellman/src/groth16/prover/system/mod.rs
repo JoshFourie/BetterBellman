@@ -6,15 +6,14 @@ use pairing::Engine;
 
 use super::{ParameterSource, Result};
 
-use crate::{ConstraintSystem, Index, LinearCombination, Variable};
-use crate::{arith, multiexp};
-use arith::Scalar;
+use crate::{ConstraintSystem, Index, LinearCombination, Coefficient};
+use crate::{domain, multiexp};
+use domain::Scalar;
 use multiexp::DensityTracker;
 
 mod builder;
-mod context;
-mod fourier;
 mod source;
+mod fourier;
 
 type AssignmentField<E> = Arc<Vec<<<E as ScalarEngine>::Fr as PrimeField>::Repr>>;
 
@@ -32,7 +31,7 @@ impl<E: Engine> ProvingSystem<E> {
         for i in 0..self.assignment.input.len() {
             self.enforce(
                 || "", 
-                |lc| lc + Variable::new_unchecked(Index::Input(i)), 
+                |lc| lc + Coefficient::new_unchecked(Index::Input(i)), 
                 |lc| lc, 
                 |lc| lc
             );
@@ -48,7 +47,7 @@ where
 {
     type Root = Self;
 
-    fn alloc<F, A, AR>(&mut self, _: A, f: F) -> Result<Variable>
+    fn alloc<F, A, AR>(&mut self, _: A, f: F) -> Result<Coefficient>
     where
         F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
@@ -58,10 +57,10 @@ where
         self.density.a_aux.add_element();
         self.density.b_aux.add_element();
 
-        Ok(Variable::new_unchecked(Index::Aux(self.assignment.aux.len() - 1)))
+        Ok(Coefficient::new_unchecked(Index::Aux(self.assignment.aux.len() - 1)))
     }
 
-    fn alloc_input<F, A, AR>(&mut self, _: A, f: F) -> Result<Variable>
+    fn alloc_input<F, A, AR>(&mut self, _: A, f: F) -> Result<Coefficient>
     where
         F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
@@ -71,7 +70,7 @@ where
         self.density.b_input.add_element();
 
         let index: _ = Index::Input(self.assignment.input.len() - 1);
-        Ok(Variable::new_unchecked(index))
+        Ok(Coefficient::new_unchecked(index))
     }
 
     fn enforce<A, AR, LA, LB, LC>(&mut self, _: A, a: LA, b: LB, c: LC)

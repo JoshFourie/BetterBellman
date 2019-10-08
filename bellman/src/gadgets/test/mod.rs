@@ -1,7 +1,7 @@
 use ff::{Field, PrimeField, PrimeFieldRepr};
 use pairing::Engine;
 
-use crate::{ConstraintSystem, Index, LinearCombination, SynthesisError, Variable};
+use crate::{ConstraintSystem, Index, LinearCombination, SynthesisError, Coefficient};
 
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -15,7 +15,7 @@ use blake2s_simd::{Params as Blake2sParams, State as Blake2sState};
 #[derive(Debug)]
 enum NamedObject {
     Constraint(usize),
-    Var(Variable),
+    Var(Coefficient),
     Namespace,
 }
 
@@ -34,7 +34,7 @@ pub struct TestConstraintSystem<E: Engine> {
 }
 
 #[derive(Clone, Copy)]
-struct OrderedVariable(Variable);
+struct OrderedVariable(Coefficient);
 
 impl Eq for OrderedVariable {}
 impl PartialEq for OrderedVariable {
@@ -62,7 +62,7 @@ impl Ord for OrderedVariable {
     }
 }
 
-fn proc_lc<E: Engine>(terms: &[(Variable, E::Fr)]) -> BTreeMap<OrderedVariable, E::Fr> {
+fn proc_lc<E: Engine>(terms: &[(Coefficient, E::Fr)]) -> BTreeMap<OrderedVariable, E::Fr> {
     let mut map = BTreeMap::new();
     for &(var, coeff) in terms {
         map.entry(OrderedVariable(var))
@@ -85,7 +85,7 @@ fn proc_lc<E: Engine>(terms: &[(Variable, E::Fr)]) -> BTreeMap<OrderedVariable, 
     map
 }
 
-fn hash_lc<E: Engine>(terms: &[(Variable, E::Fr)], h: &mut Blake2sState) {
+fn hash_lc<E: Engine>(terms: &[(Coefficient, E::Fr)], h: &mut Blake2sState) {
     let map = proc_lc::<E>(terms);
 
     let mut buf = [0u8; 9 + 32];
@@ -111,7 +111,7 @@ fn hash_lc<E: Engine>(terms: &[(Variable, E::Fr)], h: &mut Blake2sState) {
 }
 
 fn eval_lc<E: Engine>(
-    terms: &[(Variable, E::Fr)],
+    terms: &[(Coefficient, E::Fr)],
     inputs: &[(E::Fr, String)],
     aux: &[(E::Fr, String)],
 ) -> E::Fr {
@@ -347,7 +347,7 @@ fn compute_path(ns: &[String], this: String) -> String {
 impl<E: Engine> ConstraintSystem<E> for TestConstraintSystem<E> {
     type Root = Self;
 
-    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable, SynthesisError>
+    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Coefficient, SynthesisError>
     where
         F: FnOnce() -> Result<E::Fr, SynthesisError>,
         A: FnOnce() -> AR,
@@ -356,13 +356,13 @@ impl<E: Engine> ConstraintSystem<E> for TestConstraintSystem<E> {
         let index = self.aux.len();
         let path = compute_path(&self.current_namespace, annotation().into());
         self.aux.push((f()?, path.clone()));
-        let var = Variable::new_unchecked(Index::Aux(index));
+        let var = Coefficient::new_unchecked(Index::Aux(index));
         self.set_named_obj(path, NamedObject::Var(var));
 
         Ok(var)
     }
 
-    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable, SynthesisError>
+    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Coefficient, SynthesisError>
     where
         F: FnOnce() -> Result<E::Fr, SynthesisError>,
         A: FnOnce() -> AR,
@@ -371,7 +371,7 @@ impl<E: Engine> ConstraintSystem<E> for TestConstraintSystem<E> {
         let index = self.inputs.len();
         let path = compute_path(&self.current_namespace, annotation().into());
         self.inputs.push((f()?, path.clone()));
-        let var = Variable::new_unchecked(Index::Input(index));
+        let var = Coefficient::new_unchecked(Index::Input(index));
         self.set_named_obj(path, NamedObject::Var(var));
 
         Ok(var)

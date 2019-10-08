@@ -12,7 +12,7 @@ use crate::domain::Domain;
 use crate::error::Result;
 
 mod assembly;
-use assembly::*;
+use assembly::Assembly;
 
 /// Generates a random common reference string for
 /// a circuit.
@@ -48,26 +48,25 @@ where
     E: Engine,
     C: Circuit<E>,
 {
-    let mut assembly: ParameterAssembly<E,C> = ParameterAssembly::new(circuit, g1, g2, alpha, beta, gamma, delta, tau)?;
-    let key_pair: KeyPairAssembly<E> = assembly.build_key_pair_assembly()?;
-    let mut evaluation_domain: Domain<_,_> = key_pair.blind_evaluation_base()?; 
+    let mut assembly: _ = Assembly::new(circuit, g1, g2, alpha, beta, gamma, delta, tau)?;
+    let mut evaluation_domain: Domain<_,_> = assembly.evaluation_domain()?; 
 
-    let mut windows: _ = WindowTables::default();
-    let based: _ = windows.as_based(&key_pair, &assembly, &evaluation_domain);
+    let mut windows: _ = assembly::Windows::default();
+    let based: _ = windows.as_based(&assembly, &evaluation_domain)?;
 
-    let h: Vec<E::G1Affine> = assembly.compute_h(&mut evaluation_domain, &based.g1)?;
+    let h: Vec<E::G1Affine> = assembly.h(&mut evaluation_domain, &based.g1)?;
 
-    let mut writer: _ = EvaluationWriter::new(&key_pair);
-    let lagrange_coeffs = into_lagrange_coefficients(evaluation_domain);
+    let lagrange_coeffs = assembly::into_lagrange_coefficients(evaluation_domain);
 
-    assembly.evaluate(&mut writer, &key_pair, based, &lagrange_coeffs);
+    assembly.evaluate(&based, &lagrange_coeffs)?;
     
-    if writer.is_unconstrained() {
+    if assembly.result_is_unconstrained()? {
         return Err(SynthesisError::UnconstrainedVariable)
     }
 
-    let vk: VerifyingKey<E> = assembly.build_verifying_key(&mut writer);
-    let (l, a, b_g1, b_g2): _ = writer.filter_non_zero_and_map_to_affine();
+    let vk: VerifyingKey<E> = assembly.verifying_key()?;
+    
+    let (l, a, b_g1, b_g2): _ = assembly.results().filter_into_affine();
 
     Ok(Parameters {
         vk,

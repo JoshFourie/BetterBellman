@@ -1,18 +1,15 @@
-pub mod arith;
-pub mod linear;
+pub mod primitives;
 pub mod fft;
 pub mod multiexp;
 
-pub use arith::*;
-pub use linear::*;
+pub use primitives::*;
 pub use fft::*;
 pub use multiexp::*;
 
 use ff::{Field, PrimeField, ScalarEngine};
 
-use crate::{error, multicore, multi_thread};
+use crate::{error, multi_thread};
 use error::{SynthesisError, Result};
-use arith::{Scalar, Group};
 
 use std::ops;
 
@@ -54,7 +51,7 @@ where
         let casted_m: _ = format!("{}",m);
         let minv: _ = E::Fr::from_str(&casted_m)?.inverse()?;
 
-        Self::maybe_pad_with_zeroes(&mut coeffs, m);
+        coeffs.resize(m, G::zero());
 
         let domain: _ = Domain {
             coeffs,
@@ -65,10 +62,6 @@ where
             minv
         };
         Ok(domain)
-    }
-
-    fn maybe_pad_with_zeroes(coeffs: &mut Vec<G>, size: usize) {
-        coeffs.resize(size, G::zero());
     }
 
     // Compute omega, the 2^exp primitive root of unity
@@ -113,7 +106,6 @@ where
 
     pub fn ifft(&mut self) {
         fft::run_optimal_fft(&mut self.coeffs, &self.omegainv, self.exp);
-
         let coeff_len: usize = self.coeffs.len();
         let mul_inv: E::Fr = self.minv;
         multi_thread!(coeff_len, iter(self.coeffs) => {

@@ -31,11 +31,12 @@ where
         return Err(SynthesisError::MalformedVerifyingKey);
     }
 
-    let mut acc = pvk.ic[0].into_projective();
-
-    for (i, b) in public_inputs.iter().zip(pvk.ic.iter().skip(1)) {
-        acc.add_assign(&b.mul(i.into_repr()));
-    }
+    let acc: _ = public_inputs.iter()
+        .zip(pvk.ic.iter().skip(1))
+        .fold(pvk.ic[0].into_projective(), |mut acc, (i,b)| {
+            acc.add_assign( &b.mul(i.into_repr()) );
+            acc
+        });
 
     // The original verification equation is:
     // A * B = alpha * beta + inputs * gamma + C * delta

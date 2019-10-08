@@ -12,10 +12,10 @@ use pairing::Engine;
 use pairing::bls12_381::Bls12;
 
 // We'll use these interfaces to construct our circuit.
-use bellman::{Circuit, ConstraintSystem, SynthesisError};
+use better_bellman::{Circuit, ConstraintSystem, SynthesisError};
 
 // We're going to use the Groth16 proving system.
-use bellman::groth16::{
+use better_bellman::groth16::{
     create_random_proof, generate_random_parameters, prepare_verifying_key, verify_proof, Proof,
 };
 

@@ -23,7 +23,7 @@ pub mod error;
 pub mod namespace;
 pub mod constraint;
 
-#[macro_export]
+#[macro_use]
 pub mod multicore;
 
 pub use error::{Result, SynthesisError};

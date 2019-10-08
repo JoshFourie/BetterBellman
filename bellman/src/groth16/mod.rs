@@ -411,11 +411,11 @@ pub trait ParameterSource<E: Engine> {
 
     fn get_l(&mut self) -> Result<Self::G1Builder>;
 
-    fn get_a(&mut self, num_inputs: usize) -> Result<(Self::G1Builder,Self::G1Builder)>;
+    fn a(&mut self, num_inputs: usize) -> Result<(Self::G1Builder,Self::G1Builder)>;
 
-    fn get_b_g1(&mut self, num_inputs: usize) -> Result<(Self::G1Builder, Self::G1Builder)>;
+    fn b_g1(&mut self, num_inputs: usize) -> Result<(Self::G1Builder, Self::G1Builder)>;
 
-    fn get_b_g2(&mut self, num_inputs: usize) -> Result<(Self::G2Builder, Self::G2Builder)>;
+    fn b_g2(&mut self, num_inputs: usize) -> Result<(Self::G2Builder, Self::G2Builder)>;
 }
 
 impl<'a, E> ParameterSource<E> for &'a Parameters<E> 
@@ -438,15 +438,15 @@ where
         Ok((self.l.clone(), 0))
     }
 
-    fn get_a(&mut self, num_inputs: usize) -> Result<(Self::G1Builder, Self::G1Builder)> {
+    fn a(&mut self, num_inputs: usize) -> Result<(Self::G1Builder, Self::G1Builder)> {
         Ok(((self.a.clone(), 0), (self.a.clone(), num_inputs)))
     }
 
-    fn get_b_g1(&mut self, num_inputs: usize) -> Result<(Self::G1Builder, Self::G1Builder)> {
+    fn b_g1(&mut self, num_inputs: usize) -> Result<(Self::G1Builder, Self::G1Builder)> {
         Ok(((self.b_g1.clone(), 0), (self.b_g1.clone(), num_inputs)))
     }
 
-    fn get_b_g2(&mut self, num_inputs: usize) -> Result<(Self::G2Builder, Self::G2Builder)> {
+    fn b_g2(&mut self, num_inputs: usize) -> Result<(Self::G2Builder, Self::G2Builder)> {
         Ok(((self.b_g2.clone(), 0), (self.b_g2.clone(), num_inputs)))
     }
 }

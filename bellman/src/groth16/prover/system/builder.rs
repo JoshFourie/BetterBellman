@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::{source, context, fourier};
+use super::{source, fourier};
 use super::{
     PolynomialEvaluation, ParameterSource, Result, 
     ProvingSystem, Future, SynthesisError, 
@@ -20,8 +20,8 @@ pub struct Builder<E: Engine> {
     s: E::Fr, 
     h: E::G1,
     l: E::G1,
-    answer: context::Answer<E>,
-    aux: context::Auxiliary<E>,
+    answer: source::Answer<E>,
+    aux: source::Auxiliary<E>,
 }
 
 impl<E> Builder<E>
@@ -35,13 +35,10 @@ where
         let vk: VerifyingKey<E> = try_vk(params)?;
         let h: _ = try_h(&mut prover.eval, params)?;
         
-        let (input, aux): (AssignmentField<E>, AssignmentField<E>) = into_primefield(prover.assignment);
-        let l: _ = try_l(&aux, params)?;
+        let (input_field, aux_field): (AssignmentField<E>, AssignmentField<E>) = into_primefield(prover.assignment);
+        let l: _ = try_l(&aux_field, params)?;
 
-        let mut src: _ = source::Source::try_new(prover.density, input.len(), params)?;
-        let answer: _ = src.into_answer(input)?;
-        let aux: _ = src.into_auxiliary(aux)?;
-
+        let (answer, aux): _ = source::SourceFactory::try_new(prover.density, input_field, aux_field, params)?.unpack();
         let builder: _ = Self {
             vk,
             r,

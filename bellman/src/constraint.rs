@@ -1,5 +1,5 @@
 use crate::{Namespace, domain, error};
-use domain::{Variable, LinearCombination, Index};
+use domain::{Coefficient, LinearCombination, Index};
 use error::Result;
 
 use ff::ScalarEngine;
@@ -15,15 +15,15 @@ where
     type Root: ConstraintSystem<E>;
 
     /// Return the "one" input variable
-    fn one() -> Variable {
-        Variable::new_unchecked(Index::Input(0))
+    fn one() -> Coefficient {
+        Coefficient::new_unchecked(Index::Input(0))
     }
 
     /// Allocate a private variable in the constraint system. The provided function is used to
     /// determine the assignment of the variable. The given `annotation` function is invoked
     /// in testing contexts in order to derive a unique name for this variable in the current
     /// namespace.
-    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable>
+    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Coefficient>
     where
         F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
@@ -31,7 +31,7 @@ where
 
     /// Allocate a public variable in the constraint system. The provided function is used to
     /// determine the assignment of the variable.
-    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable>
+    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Coefficient>
     where
         F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
@@ -80,11 +80,11 @@ where
 impl<'cs, E: ScalarEngine, CS: ConstraintSystem<E>> ConstraintSystem<E> for &'cs mut CS {
     type Root = CS::Root;
 
-    fn one() -> Variable {
+    fn one() -> Coefficient {
         CS::one()
     }
 
-    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable>
+    fn alloc<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Coefficient>
     where
         F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
@@ -93,7 +93,7 @@ impl<'cs, E: ScalarEngine, CS: ConstraintSystem<E>> ConstraintSystem<E> for &'cs
         (**self).alloc(annotation, f)
     }
 
-    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Variable>
+    fn alloc_input<F, A, AR>(&mut self, annotation: A, f: F) -> Result<Coefficient>
     where
         F: FnOnce() -> Result<E::Fr>,
         A: FnOnce() -> AR,
