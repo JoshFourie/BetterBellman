@@ -1,3 +1,9 @@
+# Repository Notice: ARCHIVED
+
+This repository has been archived. In this library, I rewrote the API and codebase for Bellman. I think it is easier to read and review but it has fallen far behind `master`: do not use it for anything! If you like, some people have found it easier to understand the original protocol by reading the code in this repository. 
+
+---
+
 # Purpose
 We have publicly forked the Zcash library beacuase we are refactoring bellman. In its current state, the library is difficult to understand if you are not familiar with both the original Groth16 paper, as well as the work by the Zcash and Sonic team on extending the capabilities of the implementation. One consequence of this is that vetting the library for bugs and errors is considerably harder, because we are attempting to understand 200+ line functions with ambiguous names deeply connected to the academic works. Maintaining the work is also somewhat harder, because the original team is required to understand particular design decisions.
 
